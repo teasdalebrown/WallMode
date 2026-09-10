@@ -23,8 +23,8 @@ internal object BannerInstrumentationChecks {
         lateinit var root: FrameLayout
         var accept = false
         val replies = mutableListOf<Pair<String, String>>()
-        val notice = BannerNotice.validated("banner-test", "Wasmachine", "De was is klaar.",
-            level = "success", action = ActionCardAction("confirm", "Bevestigen"))!!
+        val notice = BannerNotice.validated("banner-test", "Washing machine", "The laundry is done.",
+            level = "success", action = ActionCardAction("confirm", "Confirm"))!!
         fun layout() {
             val density = root.resources.displayMetrics.density
             root.measure(View.MeasureSpec.makeMeasureSpec((492 * density).toInt(), View.MeasureSpec.EXACTLY),

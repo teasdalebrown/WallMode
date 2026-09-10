@@ -1,8 +1,14 @@
 # First WallMode Android release
 
-WallMode source is hosted at https://github.com/rvbcrs/WallMode. No signed WallMode
-release has been published yet. The intended distribution model is a signed APK
-on GitHub Releases. These are release gates, not claims that the checks have passed.
+WallMode source is hosted at https://github.com/rvbcrs/WallMode. Successful CI builds
+of `master` publish signed development APKs as GitHub pre-releases, with a unique
+`build-RUN-ATTEMPT` tag pointing to the exact source commit. Branch/tag builds only
+upload Actions artifacts. Pre-releases are not offered by the stable in-app updater.
+
+CI verifies unit tests, release lint, APK signing and alignment from a clean
+checkout. This does not complete the checklist below: device acceptance, media
+provenance and backup rules remain open. Do not present an automated build as a
+stable release until those checks are complete.
 
 ## Before tagging
 
@@ -35,8 +41,8 @@ on GitHub Releases. These are release gates, not claims that the checks have pas
    Run `assembleDebug`, `testDebugUnitTest`, `assembleDebugAndroidTest` and
    `lintDebug` as separate Gradle invocations, never concurrently. Run the device
    checks before proceeding. The reduced-memory profile has passed both debug
-   APK builds, 46 unit tests and debug lint (0 errors, 96 warnings). A clean
-   checkout and a signed release remain unverified.
+   APK builds, 46 unit tests and debug lint (0 errors, 96 warnings). CI now also
+   verifies clean-checkout signed development builds.
 4. Run `assembleRelease` and `lintRelease` separately with the same low-impact
    command prefix. Signing is optional in the
    Gradle file, so a successful build alone does not prove the APK is signed.

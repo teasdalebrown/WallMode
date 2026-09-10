@@ -12,7 +12,7 @@ Home Assistant is optional: any valid HTTP or HTTPS dashboard can be used. Home 
 
 WallMode targets Android 8.0 and newer. Its primary physical test device is the Lenovo ThinkSmart View.
 
-> **Project status:** the WallMode version line is currently `0.1.0`, but no WallMode release has been tagged yet. Build or sideload the development APK as described below.
+> **Project status:** WallMode is in early development. Download a signed development APK from [Releases](https://github.com/rvbcrs/WallMode/releases). These pre-releases are not stable releases.
 
 ## Support WallMode
 
@@ -540,9 +540,15 @@ It runs unit tests and release lint, builds with the existing release key, verif
 the APK signature and alignment, and uploads the APK plus its SHA-256 checksum.
 You can also start a build with **Run workflow**.
 
-Open a successful run under **Actions**, then download **WallMode-apk-...** from
-**Artifacts**. Artifacts are retained for 30 days and require a GitHub login to
-download. These are development builds, not automatically published GitHub Releases.
+Successful builds of `master` also publish a pre-release under
+[Releases](https://github.com/rvbcrs/WallMode/releases). Download the `.apk` directly
+under **Assets**, without a GitHub login. Each release has its own build tag,
+source archives and SHA-256 checksum. Other branches and tag pushes only produce
+Actions artifacts. Pre-releases are installed manually; the in-app updater uses
+stable releases.
+
+All builds also keep **WallMode-apk-...** under the successful run's **Artifacts**
+for 30 days; downloading those artifacts requires a GitHub login.
 The APK filename includes the commit ID; the app version still comes from
 `app/build.gradle.kts` and is not automatically increased.
 
@@ -555,8 +561,7 @@ as previous releases, never a newly generated key for each build:
 
 Missing secrets fail the build; there is no unsigned fallback. Signing files are
 removed before artifact upload. No pull-request event receives the signing secrets.
-For a permanent public download link, publish a GitHub Release after completing
-[RELEASING.md](RELEASING.md).
+Before promoting a build to a stable release, complete [RELEASING.md](RELEASING.md).
 
 ### APK location and installation
 
@@ -576,7 +581,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 The debug package ID is `io.github.rvbcrs.wallmode.debug`; the release package ID is `io.github.rvbcrs.wallmode`.
 
-Before publishing the first signed APK, follow [RELEASING.md](RELEASING.md). A debug build is not a verified public release.
+For stable-release readiness, follow [RELEASING.md](RELEASING.md). Neither a debug build nor an automated pre-release proves physical-device acceptance.
 
 ## Troubleshooting
 

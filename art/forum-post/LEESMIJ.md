@@ -7,12 +7,11 @@
 ## Voor plaatsen
 
 De publieke broncode staat op https://github.com/rvbcrs/WallMode. Die link is
-ingevuld in de post. Er is nog geen ondertekende WallMode-release gepubliceerd.
+ingevuld in de post, samen met de Releases-link voor ondertekende ontwikkelbuilds.
 
-Vervang de resterende download-linkplaats in `post.md` door een geverifieerde,
-publieke ondertekende release-download. De huidige
-ThinkSmart-installatie is een debugbuild; dit pakket bevat bewust geen APK.
-Volg eerst de relevante controles in `RELEASING.md`, inclusief mediarechten.
+De post legt uit hoe lezers de APK onder Assets bij de nieuwste pre-release
+downloaden. Hiervoor is geen GitHub-login nodig. Dit pakket bevat zelf geen APK.
+Volg voor publicatie de relevante controles in `RELEASING.md`, inclusief mediarechten.
 
 ## Op het Home Assistant-forum
 
@@ -31,8 +30,9 @@ Categorie: https://community.home-assistant.io/c/projects/9
   met de huidige gecompileerde app-stijl. Voorbeeldwaarden ingevuld; lokale
   adressen, tijdelijke formuliertokens en teststrings verwijderd. Dit is een
   interface-render, geen foto of bewijs van een live apparaatverbinding.
-- `03-notification.png`: ongewijzigde native Android-render uit de bestaande
-  ThinkSmart-notificatietest. De tekst is een testmelding, geen echte huishouddata.
+- `03-notification.png`: Engelstalige native Android-render uit de bestaande
+  notificatietest, uitgevoerd op een emulator op ThinkSmart-schermformaat.
+  De tekst is een testmelding, geen echte huishouddata.
 
 De captions in de forumpost benoemen de voorbeelden expliciet. Er zijn geen
 AI-gegenereerde appschermen of verzonnen productfuncties gebruikt.

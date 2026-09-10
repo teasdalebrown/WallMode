@@ -30,13 +30,15 @@ A wall tablet can do more than sit on a dashboard. An automation can show a "lau
 
 ![A native WallMode notification saying the laundry is finished, with a confirmation button.](images/03-notification.png)
 
-*Native Android notification example. The message is in Dutch; notification text is supplied by your automation.*
+*Native Android notification example. The title, message and button label are supplied by your automation.*
 
 ## Trying it
 
 **Source and documentation:** [GitHub - rvbcrs/WallMode](https://github.com/rvbcrs/WallMode)
 
-**APK download:** [ADD SIGNED RELEASE DOWNLOAD LINK]
+**APK download:** [WallMode Releases](https://github.com/rvbcrs/WallMode/releases)
+
+Open the newest release and download the `.apk` under **Assets**. No GitHub account is needed. Successful builds of the main development branch are published automatically as signed **pre-releases**, with a SHA-256 checksum and matching source code. These are early development builds, not stable releases.
 
 1. Install the APK on an Android 8.0+ device. Android may ask you to allow installation from the browser or file manager you used.
 2. Open WallMode. To access settings, tap the top-right corner five times within 2.5 seconds.

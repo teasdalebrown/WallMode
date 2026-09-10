@@ -12,6 +12,8 @@ jobs:
     if: github.repository == 'rvbcrs/WallMode'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    outputs:
+      artifact-name: WallMode-apk-${{ github.run_number }}-${{ github.run_attempt }}
     defaults:
       run:
         shell: bash
@@ -73,3 +75,37 @@ jobs:
             artifacts/*.sha256
           if-no-files-found: error
           retention-days: 30
+
+  publish:
+    needs: apk
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      ARTIFACT_NAME: ${{ needs.apk.outputs.artifact-name }}
+    steps:
+      - name: Download verified APK
+        run: gh run download "$GITHUB_RUN_ID" --name "$ARTIFACT_NAME" --dir artifacts
+
+      - name: Publish development release
+        shell: bash
+        run: |
+          cd artifacts
+          sha256sum --check ./*.sha256
+          tag="build-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}"
+          gh release create "$tag" ./*.apk ./*.sha256 \
+            --target "$GITHUB_SHA" \
+            --title "WallMode development build ${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}" \
+            --prerelease --latest=false \
+            --notes "Automated signed development APK from commit $GITHUB_SHA.
+
+          Download the APK under Assets and install it on Android 8.0 or newer. The SHA-256 checksum is included; source archives match this build's tag.
+
+          Unit tests, release lint, APK signature and alignment checks passed. This is not a stable release: extended physical-device and Home Assistant acceptance checks remain open. See RELEASING.md at this tag for the full outstanding checklist, including media provenance and backup rules.
+
+          The app version is set in app/build.gradle.kts and is not automatically increased. These pre-releases are for manual installation, not the in-app stable update channel."
