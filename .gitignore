@@ -35,6 +35,11 @@ logo*.png
 icon*.svg
 icon*.png
 
+# Canonical public branding assets
+!art/wallmode-icon.svg
+!art/wallmode-icon.png
+!art/wallmode-mark.svg
+
 # Release signing secrets
 keystore/*.jks
 keystore/signing.properties
