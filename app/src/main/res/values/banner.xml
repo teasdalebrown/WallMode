@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="banner_level_info">Information</string>
+    <string name="banner_level_success">Success</string>
+    <string name="banner_level_warning">Warning</string>
+    <string name="banner_level_error">Error</string>
+    <string name="banner_dismiss">Dismiss notification</string>
+    <string name="banner_action_failed">Could not send the response. Check MQTT and try again.</string>
+</resources>

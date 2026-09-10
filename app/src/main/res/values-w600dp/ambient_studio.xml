@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="settings_page_padding">16dp</dimen>
+    <dimen name="settings_card_padding">18dp</dimen>
+    <dimen name="settings_section_gap">12dp</dimen>
+    <dimen name="settings_topbar_min_height">78dp</dimen>
+    <dimen name="settings_footer_min_height">64dp</dimen>
+    <dimen name="ambient_background_tile_width">144dp</dimen>
+    <dimen name="ambient_background_tile_height">120dp</dimen>
+</resources>

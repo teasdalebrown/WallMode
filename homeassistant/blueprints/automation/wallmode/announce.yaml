@@ -1,0 +1,72 @@
+blueprint:
+  name: WallMode — spoken announcement
+  description: >-
+    Speak a short message on a WallMode tablet when your chosen trigger fires.
+    Select the WallMode MQTT device, not a speaker or another MQTT device.
+    Requires the device's Announcement entity and an Android text-to-speech engine.
+    Volume is WallMode's default 80%; a new message replaces speech already playing.
+  domain: automation
+  author: WallMode
+  homeassistant:
+    min_version: "2024.11.0"
+  input:
+    wallmode_device:
+      name: WallMode tablet
+      selector:
+        device:
+          filter:
+            - integration: mqtt
+          entity:
+            - domain: notify
+    triggers:
+      name: When to announce
+      selector:
+        trigger: {}
+    conditions:
+      name: Only if
+      description: Optional conditions, such as someone being home or allowed hours.
+      default: []
+      selector:
+        condition: {}
+    message:
+      name: Message to speak
+      description: 1–255 characters on one line. For example, The washing machine is finished.
+      selector:
+        text: {}
+
+triggers: !input triggers
+conditions: !input conditions
+variables:
+  wallmode_device: !input wallmode_device
+  message: !input message
+  device_identifier: >-
+    {% set found = namespace(ids=[]) %}
+    {% for domain, identifier in device_attr(wallmode_device, 'identifiers') or [] %}
+      {% if domain == 'mqtt' and identifier is match('^wallmode_[a-z0-9]{1,16}$') %}
+        {% set found.ids = found.ids + [identifier] %}
+      {% endif %}
+    {% endfor %}
+    {{ found.ids[0] if found.ids | length == 1 else '' }}
+actions:
+  - if:
+      - condition: template
+        value_template: "{{ not device_identifier }}"
+    then:
+      - stop: Select a WallMode MQTT device with an Announcement entity.
+        error: true
+  - if:
+      - condition: template
+        value_template: >-
+          {{ not (1 <= message | trim | length and
+                  (message | trim).encode('utf-16-le') | length <= 510)
+             or message is search('[\x00-\x1f\x7f-\x9f]') }}
+    then:
+      - stop: The announcement must contain 1–255 characters on one line.
+        error: true
+  - action: notify.send_message
+    target:
+      device_id: !input wallmode_device
+    data:
+      message: "{{ message | trim }}"
+mode: single
+max_exceeded: silent

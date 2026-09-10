@@ -28,8 +28,8 @@ Thumbs.db
 .DS_Store
 
 # Branding / icon assets (local)
-ZenPanel*.svg
-ZenPanel*.png
+WallMode*.svg
+WallMode*.png
 logo*.svg
 logo*.png
 icon*.svg
@@ -40,5 +40,5 @@ keystore/*.jks
 keystore/signing.properties
 
 # Local QA captures
-kioskzen_*.png
-kioskzen_*.jpg
+wallmode_*.png
+wallmode_*.jpg

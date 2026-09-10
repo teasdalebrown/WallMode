@@ -2,29 +2,43 @@
 <resources>
     <color name="black">#000000</color>
     <color name="white">#FFFFFF</color>
-    <color name="ic_launcher_background">#FFFFFF</color>
+    <color name="ic_launcher_background">#131B20</color>
 
-    <color name="surface_base">#EEF3FF</color>
-    <color name="page_gradient_start">#EEF4FF</color>
-    <color name="page_gradient_center">#E5F2FF</color>
-    <color name="page_gradient_end">#EAF9F2</color>
-    <color name="page_orb_primary">#6631D2C8</color>
-    <color name="page_orb_secondary">#55567DFF</color>
-    <color name="page_scrim">#1AFFFFFF</color>
+    <color name="surface_base">#EAF2F4</color>
+    <color name="page_gradient_start">#F2F8F9</color>
+    <color name="page_gradient_center">#EAF4F6</color>
+    <color name="page_gradient_end">#E9F5F1</color>
+    <color name="page_orb_primary">#5530C7D8</color>
+    <color name="page_orb_secondary">#442DB99D</color>
+    <color name="page_scrim">#12FFFFFF</color>
 
-    <color name="brand_surface">#0A1B34</color>
-    <color name="brand_stroke">#2A4F80</color>
-    <color name="brand_on_surface">#ECF4FF</color>
-    <color name="brand_on_surface_subtle">#B6CAE8</color>
-    <color name="brand_primary">#1B83F8</color>
-    <color name="brand_primary_faint">#331B83F8</color>
-    <color name="tab_nav_unselected">#1E3A63</color>
+    <color name="brand_surface">#E1F0F3</color>
+    <color name="brand_stroke">#A8C2C9</color>
+    <color name="brand_on_surface">#10242C</color>
+    <color name="brand_on_surface_subtle">#526A73</color>
+    <color name="brand_on_primary">#031417</color>
+    <color name="brand_primary">#18AFC1</color>
+    <color name="brand_primary_faint">#2918AFC1</color>
+    <color name="tab_nav_unselected">#526A73</color>
 
-    <color name="card_surface">#D9FFFFFF</color>
-    <color name="card_stroke">#80C9DBF4</color>
-    <color name="glass_hero_surface">#CC0C1D39</color>
-    <color name="glass_input_surface">#80FFFFFF</color>
-    <color name="glass_card_stroke">#66CBE1FF</color>
+    <color name="card_surface">#F7FFFFFF</color>
+    <color name="card_stroke">#8FB9C9CE</color>
+    <color name="glass_hero_surface">#F7FFFFFF</color>
+    <color name="glass_input_surface">#FFFFFFFF</color>
+    <color name="glass_card_stroke">#8FB4C7CC</color>
+
+    <color name="settings_rail_surface">#FAF7FBFC</color>
+    <color name="settings_bar_surface">#F7FFFFFF</color>
+    <color name="settings_chip_surface">#DDECF3F5</color>
+    <color name="settings_ambient_surface">#FFF8F0E2</color>
+    <color name="settings_status_surface">#FFEAF7F2</color>
+    <color name="settings_danger_surface">#FFFFF1F2</color>
+    <color name="settings_status_stroke">#8055B891</color>
+    <color name="settings_danger_stroke">#80D75A64</color>
+    <color name="settings_text_secondary">#526A73</color>
+    <color name="settings_text_muted">#7A8D94</color>
+    <color name="settings_success">#168E5B</color>
+    <color name="settings_amber">#B96B00</color>
 
     <color name="recovery_bg">#112947</color>
     <color name="recovery_stroke">#2F4A6D</color>

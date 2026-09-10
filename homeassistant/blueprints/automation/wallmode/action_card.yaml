@@ -1,0 +1,185 @@
+blueprint:
+  name: WallMode — two-button action card
+  description: >-
+    Show a question on a WallMode tablet and run the Home Assistant actions for the
+    selected button. A timeout or dismissal performs no action. Use only actions
+    appropriate for anyone who can touch the tablet. This automation waits for one
+    response and ignores new triggers while its card or selected actions are active.
+  domain: automation
+  author: WallMode
+  homeassistant:
+    min_version: "2024.11.0"
+  input:
+    wallmode_device:
+      name: WallMode tablet
+      selector:
+        device:
+          filter:
+            - integration: mqtt
+    triggers:
+      name: When to ask
+      selector:
+        trigger: {}
+    conditions:
+      name: Only if
+      default: []
+      selector:
+        condition: {}
+    title:
+      name: Title
+      description: 1–80 characters on one line.
+      selector:
+        text: {}
+    message:
+      name: Explanation
+      description: Optional; up to 300 characters on one line.
+      default: ""
+      selector:
+        text: {}
+    first_label:
+      name: First button label
+      description: 1–24 characters.
+      default: "Yes"
+      selector:
+        text: {}
+    first_actions:
+      name: When the first button is pressed
+      default: []
+      selector:
+        action: {}
+    second_label:
+      name: Second button label
+      description: 1–24 characters.
+      default: "Not now"
+      selector:
+        text: {}
+    second_actions:
+      name: When the second button is pressed
+      default: []
+      selector:
+        action: {}
+    duration:
+      name: Wait for an answer
+      default: 60
+      selector:
+        number:
+          min: 5
+          max: 600
+          step: 1
+          unit_of_measurement: seconds
+          mode: slider
+    priority:
+      name: Priority
+      description: Higher-priority event views or cards can interrupt this question.
+      default: 60
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 1
+          mode: slider
+
+triggers: !input triggers
+conditions: !input conditions
+variables:
+  wallmode_device: !input wallmode_device
+  title: !input title
+  message: !input message
+  first_label: !input first_label
+  second_label: !input second_label
+  duration: !input duration
+  priority: !input priority
+  device_identifier: >-
+    {% set found = namespace(ids=[]) %}
+    {% for domain, identifier in device_attr(wallmode_device, 'identifiers') or [] %}
+      {% if domain == 'mqtt' and identifier is match('^wallmode_[a-z0-9]{1,16}$') %}
+        {% set found.ids = found.ids + [identifier] %}
+      {% endif %}
+    {% endfor %}
+    {{ found.ids[0] if found.ids | length == 1 else '' }}
+  base_topic: "{{ 'wallmode/' ~ device_identifier[9:] }}"
+actions:
+  - if:
+      - condition: template
+        value_template: "{{ not device_identifier }}"
+    then:
+      - stop: Select a WallMode MQTT device.
+        error: true
+  - if:
+      - condition: template
+        value_template: >-
+          {{ not (0 < (title | trim).encode('utf-16-le') | length <= 160
+                  and (message | trim).encode('utf-16-le') | length <= 600
+                  and 0 < (first_label | trim).encode('utf-16-le') | length <= 48
+                  and 0 < (second_label | trim).encode('utf-16-le') | length <= 48
+                  and 5 <= duration | int <= 600 and 0 <= priority | int <= 100)
+             or (title ~ message ~ first_label ~ second_label)
+                is search('[\x00-\x1f\x7f-\x9f]') }}
+    then:
+      - stop: Check the card's text lengths, duration and priority. Text must be on one line.
+        error: true
+  - variables:
+      card_id: "{{ 'wm_card_' ~ context.id }}"
+  - variables:
+      card_payload: >-
+        {{ {'action': 'show', 'kind': 'card', 'id': card_id,
+            'title': title | trim, 'message': message | trim,
+            'ttl': duration | int, 'priority': priority | int,
+            'actions': [{'id': 'first', 'label': first_label | trim},
+                        {'id': 'second', 'label': second_label | trim}]} }}
+  - if:
+      - condition: template
+        value_template: "{{ (card_payload | to_json).encode('utf-16-le') | length > 4096 }}"
+    then:
+      - stop: The card command is too long. Shorten the explanation.
+        error: true
+  # Start listening before the delayed publish. Each run has a fresh card ID.
+  - parallel:
+      - sequence:
+          - wait_for_trigger:
+              - trigger: mqtt
+                topic: "{{ base_topic ~ '/event/action' }}"
+                qos: 1
+                payload: "{{ card_id ~ ':first' }}"
+                value_template: >-
+                  {{ value_json.card_id ~ ':' ~ value_json.action_id
+                     if value_json is defined and value_json is mapping
+                     and value_json.card_id is defined and value_json.card_id is string
+                     and value_json.action_id is defined and value_json.action_id is string
+                     else '' }}
+                id: first
+              - trigger: mqtt
+                topic: "{{ base_topic ~ '/event/action' }}"
+                qos: 1
+                payload: "{{ card_id ~ ':second' }}"
+                value_template: >-
+                  {{ value_json.card_id ~ ':' ~ value_json.action_id
+                     if value_json is defined and value_json is mapping
+                     and value_json.card_id is defined and value_json.card_id is string
+                     and value_json.action_id is defined and value_json.action_id is string
+                     else '' }}
+                id: second
+            timeout:
+              seconds: "{{ (duration | int) + 1 }}"
+            continue_on_timeout: false
+          - choose:
+              - conditions: "{{ wait.trigger.id == 'first' }}"
+                sequence: !input first_actions
+              - conditions: "{{ wait.trigger.id == 'second' }}"
+                sequence: !input second_actions
+      - sequence:
+          # ponytail: allow HA's MQTT subscription debounce before showing the card.
+          # This is not a broker-ack barrier; use a persistent response listener
+          # if a slow broker makes early replies unreliable in live testing.
+          - delay:
+              seconds: 1
+          - action: mqtt.publish
+            data:
+              topic: "{{ base_topic ~ '/command/takeover' }}"
+              payload: "{{ card_payload | to_json }}"
+              qos: 1
+              retain: false
+# ponytail: one pending question per automation; use a separate automation for
+# another tablet, not parallel runs whose cards would overwrite one another.
+mode: single
+max_exceeded: silent

@@ -2,7 +2,6 @@ pluginManagement {
     repositories {
         google()
         mavenCentral()
-        maven(url = "https://maven.mozilla.org/maven2/")
         gradlePluginPortal()
     }
 }
@@ -12,9 +11,8 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        maven(url = "https://maven.mozilla.org/maven2/")
     }
 }
 
-rootProject.name = "ZenPanel"
+rootProject.name = "WallMode"
 include(":app")

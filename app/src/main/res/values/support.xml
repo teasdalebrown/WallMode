@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="support_eyebrow">Made with your support</string>
+    <string name="support_title">Support WallMode</string>
+    <string name="support_description">Enjoying WallMode? A coffee or sponsorship helps me keep improving it. Support is completely voluntary and does not unlock features.</string>
+    <string name="support_coffee">Buy Me a Coffee</string>
+    <string name="support_github">GitHub Sponsors</string>
+    <string name="support_external_notice">Opens an external website. You can also copy the link or use this section in the browser panel.</string>
+    <string name="support_link_message">Your support is optional. Continue on the provider’s website or copy this link to another device:\n\n%1$s</string>
+    <string name="support_link_kiosk">Kiosk lock stays enabled. Copy this link to another device, or use Support WallMode in the browser panel:\n\n%1$s</string>
+    <string name="support_link_unavailable">No browser is available, or opening it is restricted. Copy this link to another device:\n\n%1$s</string>
+    <string name="support_open_browser">Open browser</string>
+    <string name="support_copy_link">Copy link</string>
+    <string name="support_link_copied">Support link copied</string>
+</resources>

@@ -1,10 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">KioskZen</string>
+    <string name="app_name">WallMode</string>
 
-    <string name="settings_title">KioskZen Control Center</string>
+    <string name="settings_title">WallMode Control Center</string>
     <string name="settings_subtitle">Quick navigation for engine, dashboard, automation, and security controls.</string>
     <string name="settings_saved">Settings saved</string>
+    <string name="settings_label">Settings</string>
+    <string name="settings_kicker">Control center</string>
+    <string name="settings_saved_state">Saved</string>
+    <string name="settings_unsaved_state">Unsaved</string>
+    <string name="settings_changes_local">Changes stay local on this device.</string>
     <string name="defaults_restored">Defaults restored</string>
 
     <string name="section_browser_and_admin">Browser Engine &amp; Admin</string>
@@ -23,14 +28,18 @@
     <string name="theme_dark">Dark</string>
     <string name="nav_display">Display</string>
     <string name="nav_dashboard">Dashboard</string>
+    <string name="nav_browser">Browser</string>
+    <string name="nav_device">Device</string>
+    <string name="nav_system">System</string>
     <string name="nav_engine">Engine</string>
     <string name="nav_watchdog">Watchdog</string>
     <string name="nav_automation">Automation</string>
     <string name="nav_updates">Updates</string>
     <string name="nav_actions">Actions</string>
-    <string name="engine_gecko">GeckoView (Firefox engine)</string>
     <string name="engine_webview">Android WebView</string>
-    <string name="engine_chromium">Chromium (in-app fullscreen)</string>
+    <string name="engine_chromium">Chromium-like WebView profile</string>
+    <string name="engine_chromium_short">Chromium-like</string>
+    <string name="browser_engine_notice">WebView-only runtime; Chromium-like changes the browser profile without adding another engine.</string>
     <string name="lock_task_mode">Enable lock task kiosk mode (device owner)</string>
 
     <string name="admin_password">Admin password</string>
@@ -49,18 +58,43 @@
     <string name="password_mismatch">Passwords do not match</string>
     <string name="password_too_short">Use at least 4 characters</string>
     <string name="startup_camera_prompt_title">Allow camera access?</string>
-    <string name="startup_camera_prompt_message">Camera permission enables wake-on-face detection. You can skip now and enable it later in settings.</string>
+    <string name="startup_camera_prompt_message">Camera permission enables motion detection to keep the display awake and wake it from the screensaver. Allowing access also turns the feature on; you can disable it later in settings.</string>
     <string name="allow_camera">Allow camera</string>
     <string name="not_now">Not now</string>
     <string name="require_password_exit_only">Require password for Exit only</string>
     <string name="admin_unlock_timeout_minutes">Admin unlock timeout (minutes)</string>
+    <string name="admin_button_corner">Settings button corner</string>
+    <string-array name="admin_button_corners">
+        <item>Top left</item>
+        <item>Top right</item>
+        <item>Bottom left</item>
+        <item>Bottom right</item>
+    </string-array>
     <string name="local_control_panel">Browser Control Panel (LAN)</string>
     <string name="local_control_enabled">Enable browser control panel server</string>
+    <string name="local_control_preview_enabled">Allow authenticated screen preview</string>
     <string name="local_control_port">Control panel port (1024-65535)</string>
     <string name="apply_control_panel_changes">Apply control panel changes now</string>
     <string name="local_control_access_disabled">Control panel URL: disabled</string>
+    <string name="local_control_password_required">Set an admin password before enabling LAN control.</string>
     <string name="local_control_access_url">Control panel URL: %1$s</string>
     <string name="invalid_local_control_port">Control panel port must be between %1$d and %2$d.</string>
+    <string name="card_home_assistant_device">Home Assistant</string>
+    <string name="mqtt_device_title">MQTT device</string>
+    <string name="mqtt_device_notice">Publishes one Home Assistant device with status, controls and an Announcement entity. In HA, choose Send a notification, select WallMode and enter your message.</string>
+    <string name="mqtt_enabled">Enable Home Assistant MQTT device</string>
+    <string name="mqtt_broker_host">Broker host (example: 192.168.0.2)</string>
+    <string name="mqtt_broker_port">Broker port</string>
+    <string name="mqtt_tls">Use TLS</string>
+    <string name="mqtt_username">MQTT username (optional)</string>
+    <string name="mqtt_password">MQTT password</string>
+    <string name="clear_mqtt_password">Clear stored password</string>
+    <string name="mqtt_password_set">Password stored (blank keeps it) · Last state: %1$s</string>
+    <string name="mqtt_password_not_set">No MQTT password stored · Last state: %1$s</string>
+    <string name="mqtt_password_cleared">MQTT password cleared</string>
+    <string name="invalid_mqtt_broker">Enter a valid MQTT broker host and port.</string>
+    <string name="mqtt_password_requires_username">Enter an MQTT username or clear the stored password.</string>
+    <string name="warning_mqtt_cleartext">Warning: MQTT credentials are unencrypted without TLS.</string>
 
     <string name="invalid_home_assistant_url">Enter a valid Home Assistant URL (http:// or https://).</string>
     <string name="warning_cleartext_http">Warning: HTTP traffic is unencrypted. Prefer HTTPS when possible.</string>
@@ -70,6 +104,7 @@
     <string name="append_kiosk_auto">Append ?kiosk automatically</string>
     <string name="auto_reload_on_failures">Auto-reload when crashes/network failures happen</string>
     <string name="auto_discover_home_assistant">Auto-find Home Assistant on startup</string>
+    <string name="auto_discover_home_assistant_hint">Only replaces the default homeassistant.local address. Your chosen dashboard stays unchanged.</string>
     <string name="discover_home_assistant_now">Discover and connect now</string>
     <string name="discovering_home_assistant">Discovering Home Assistant...</string>
     <string name="discovery_status_idle">Discovery status: idle</string>
@@ -90,6 +125,12 @@
     <string name="watchdog_interval_seconds">Watchdog interval (seconds)</string>
 
     <string name="enable_profile_schedule">Enable scheduled profile switching</string>
+    <string name="profile_schedule_notice">Switches dashboards at the configured whole hour. Manual profile buttons remain temporary.</string>
+    <string name="profile_path_fallback_notice">Leave a path empty to use the main dashboard path.</string>
+    <string name="profile_home">Home</string>
+    <string name="profile_wall">Wall</string>
+    <string name="profile_night">Night</string>
+    <string name="profile_hours_invalid">Use three different start hours between 0 and 23.</string>
     <string name="home_profile_path">Home profile path</string>
     <string name="wall_profile_path">Wall profile path</string>
     <string name="night_profile_path">Night profile path</string>
@@ -100,13 +141,57 @@
     <string name="maintenance_window_enabled">Enable daily maintenance window</string>
     <string name="maintenance_hour">Maintenance hour</string>
     <string name="maintenance_minute">Maintenance minute</string>
-    <string name="ambient_mode_enabled">Enable ambient dim mode</string>
-    <string name="ambient_dim_after_seconds">Dim after idle (seconds)</string>
-    <string name="ambient_brightness_percent">Dim brightness (%)</string>
-    <string name="presence_wake_enabled">Wake on face detection</string>
+    <string name="ambient_idle_action">After inactivity</string>
+    <string name="ambient_mode_off">Off</string>
+    <string name="ambient_mode_dim">Dim</string>
+    <string name="ambient_mode_screensaver">Clock + weather</string>
+    <string name="ambient_scene">Screensaver scene</string>
+    <string-array name="ambient_scenes">
+        <item>Aurora weather</item>
+        <item>Glow clock</item>
+    </string-array>
+    <string name="ambient_background">Ambient background</string>
+    <string-array name="ambient_background_modes">
+        <item>Built-in effects</item>
+        <item>Built-in cloud image</item>
+        <item>Built-in cloud video</item>
+        <item>Image URL</item>
+        <item>Video URL</item>
+        <item>Immich album</item>
+    </string-array>
+    <string name="ambient_background_built_in">Effects</string>
+    <string name="ambient_background_bundled_image">Cloud image</string>
+    <string name="ambient_background_bundled_video">Cloud video</string>
+    <string name="ambient_background_image_url">Image URL</string>
+    <string name="ambient_background_video_url">Video URL</string>
+    <string name="ambient_background_immich">Immich album</string>
+    <string name="ambient_background_picker_hint">Swipe to see every background</string>
+    <string name="ambient_background_url">Direct image or video URL</string>
+    <string name="ambient_background_notice">Uses a direct HTTP(S) JPEG/PNG or muted H.264 MP4. Images are limited to 8 MB; 720p video is recommended.</string>
+    <string name="invalid_ambient_background_url">Enter a valid direct HTTP(S) media URL without embedded credentials.</string>
+    <string name="ambient_immich_share_url">Full Immich share link</string>
+    <string name="ambient_immich_share_notice">No need to type this on the tablet: enable Device → Browser Control Panel (LAN), then open its URL on your phone or computer. Sign in and paste the link under Display → Immich photo clock. Close these tablet settings before saving there. Treat the link as a password; use only a trusted local network.</string>
+    <string name="ambient_photo_interval_seconds">Change photo every (seconds)</string>
+    <string name="invalid_ambient_immich_share_url">Enter a valid full HTTP(S) Immich share link.</string>
+    <string name="invalid_ambient_photo_interval">Choose a photo interval between 10 and 3600 seconds.</string>
+    <string name="ambient_preview_now">Preview now</string>
+    <string name="ambient_preview_close">Tap anywhere to close the preview</string>
+    <string name="ambient_preview_media_failed">This background could not be loaded. Showing the built-in effect instead.</string>
+    <string name="action_card_publish_failed">Could not send the action. Check MQTT and try again.</string>
+    <string name="ambient_weather_location">Weather location (city)</string>
+    <string name="ambient_weather_notice">Used only by Clock + weather. Weather data by Open-Meteo.</string>
+    <string name="ambient_dim_after_seconds">Start after idle (seconds)</string>
+    <string name="ambient_brightness_percent">Fixed brightness (%)</string>
+    <string name="ambient_follow_system_brightness">Adaptive ambient brightness</string>
+    <string name="ambient_follow_system_brightness_notice">Uses the tablet’s light sensor and Android automatic brightness. Fixed brightness remains the fallback.</string>
+    <string name="screensaver_weather_loading">Updating weather…</string>
+    <string name="screensaver_weather_unavailable">Weather unavailable</string>
+    <string name="screensaver_weather_location_needed">Set a weather location in Settings</string>
+    <string name="screensaver_weather_attribution">Weather data by Open-Meteo</string>
+    <string name="presence_wake_enabled">Wake on motion</string>
     <string name="presence_wake_cooldown_seconds">Presence wake cooldown (seconds)</string>
-    <string name="presence_wake_notice">Uses the front camera while this app is open to wake from ambient dim when a face is detected.</string>
-    <string name="presence_wake_battery_notice">Face wake uses continuous camera analysis and can increase battery use.</string>
+    <string name="presence_wake_notice">Detected movement restarts the idle timer and returns to the dashboard from dim or screensaver mode.</string>
+    <string name="presence_wake_battery_notice">While enabled, the camera stays active on the dashboard too. Frames are processed locally and are not recorded.</string>
 
     <string name="updates_enabled">Enable update checks</string>
     <string name="github_repo_slug">GitHub repo (owner/repo)</string>
@@ -134,6 +219,7 @@
 
     <string name="save_settings">Save settings</string>
     <string name="reload_dashboard">Reload dashboard</string>
+    <string name="save_and_open_dashboard">Save &amp; open dashboard</string>
     <string name="test_url">Test URL</string>
     <string name="testing_url">Testing...</string>
     <string name="reachable_http">Reachable (HTTP %1$d)</string>
@@ -141,6 +227,9 @@
     <string name="test_failed">Test failed: %1$s</string>
     <string name="unknown_error">Unknown error</string>
     <string name="reset_defaults">Reset to defaults</string>
+    <string name="reset_defaults_title">Reset all settings?</string>
+    <string name="reset_defaults_message">Dashboard, display, browser, device and system settings return to their defaults. Your admin password stays unchanged.</string>
+    <string name="reset_defaults_confirm">Reset settings</string>
     <string name="export_config">Export config</string>
     <string name="import_config">Import config</string>
     <string name="paste_config_json">Paste JSON config here</string>
@@ -161,6 +250,7 @@
     <string name="diag_load">Last load: %1$s</string>
     <string name="diag_watchdog">Watchdog: %1$s</string>
     <string name="diag_update">Updates: %1$s</string>
+    <string name="diag_mqtt">MQTT: %1$s</string>
     <string name="diag_crash">Last crash: %1$s (%2$s)</string>
 
     <string name="blocked_navigation">Blocked navigation to unsupported URL</string>
@@ -171,11 +261,59 @@
     <string name="recovery_reconnected">Network restored</string>
     <string name="recovery_retry_scheduled">Auto-recovery scheduled</string>
     <string name="recovery_retry_details">Retrying in %1$d seconds</string>
+    <string name="recovery_auto_reload_disabled">Auto-recovery is turned off</string>
+    <string name="recovery_open_settings_hint">Open WallMode settings from the configured corner to retry.</string>
     <string name="recovery_service_unreachable">Watchdog endpoint unreachable</string>
     <string name="recovery_restarting_engine">Restarting browser engine</string>
     <string name="recovery_back_online">Service recovered</string>
     <string name="recovery_maintenance">Maintenance window active</string>
     <string name="recovery_maintenance_desc">Refreshing dashboard and clearing temporary state.</string>
+    <string name="dashboard_loading">Opening dashboard…</string>
+    <string name="dashboard_unavailable">Dashboard temporarily unavailable</string>
 
     <string name="admin_gesture_desc">Hidden admin gesture zone</string>
+
+    <string name="this_device">This device</string>
+    <string name="this_device_value">%1$s · Android %2$s</string>
+    <string name="wallmode_version">WallMode %1$s</string>
+
+    <string name="section_title_display">Display &amp; ambient</string>
+    <string name="section_title_device">Device &amp; access</string>
+    <string name="section_subtitle_dashboard">Source, loading and recovery behavior.</string>
+    <string name="section_subtitle_display">Screen behavior, idle mode and motion wake.</string>
+    <string name="section_subtitle_browser">Rendering profile and page compatibility.</string>
+    <string name="section_subtitle_device">Kiosk startup, security and local control.</string>
+    <string name="section_subtitle_system">Reliability, maintenance and app management.</string>
+
+    <string name="card_dashboard_source">Dashboard source</string>
+    <string name="card_profiles">Profiles</string>
+    <string name="card_loading_recovery">Loading &amp; recovery</string>
+    <string name="card_loading_recovery_title">Loading behavior</string>
+    <string name="card_screen">Screen</string>
+    <string name="card_screen_title">Screen &amp; appearance</string>
+    <string name="card_idle">Idle screen</string>
+    <string name="card_idle_title">Ambient display</string>
+    <string name="card_presence">Presence wake</string>
+    <string name="card_presence_title">Camera motion detection</string>
+    <string name="card_engine">Rendering engine</string>
+    <string name="card_engine_title">Browser profile</string>
+    <string name="card_compatibility">Compatibility</string>
+    <string name="card_compatibility_title">Page compatibility</string>
+    <string name="card_page_identity">Page identity</string>
+    <string name="card_page_identity_title">Desktop &amp; user-agent</string>
+    <string name="card_kiosk_device">Kiosk device</string>
+    <string name="card_kiosk_device_title">Startup &amp; lockdown</string>
+    <string name="card_admin_access">Admin access</string>
+    <string name="card_admin_access_title">Password protection</string>
+    <string name="card_local_control">Local control</string>
+    <string name="card_leave_kiosk">Leave kiosk mode</string>
+    <string name="card_leave_kiosk_title">Return to the Android launcher</string>
+    <string name="card_watchdog">Health watchdog</string>
+    <string name="card_maintenance">Maintenance</string>
+    <string name="card_maintenance_title">Daily maintenance window</string>
+    <string name="card_updates">App updates</string>
+    <string name="card_config">Diagnostics &amp; configuration</string>
+    <string name="card_config_title">Tools and configuration</string>
+    <string name="card_danger">Danger zone</string>
+    <string name="card_danger_title">Reset WallMode settings</string>
 </resources>

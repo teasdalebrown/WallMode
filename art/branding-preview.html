@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WallMode - Visuele identiteit</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; color: #17252C; background: #F4F7F8; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: 0; }
+    .sheet { max-width: 1120px; margin: auto; }
+    header { padding: 32px 48px; display: flex; align-items: baseline; justify-content: space-between; gap: 24px; }
+    h1 { font-size: 28px; font-weight: 650; margin: 0; }
+    p { margin: 0; }
+    .muted { color: #5A6A71; font-size: 13px; }
+    .identity { display: flex; align-items: center; justify-content: center; gap: 52px; min-height: 320px; padding: 40px; color: #F4F7F8; background: #131B20; }
+    .identity .mark { width: 190px; height: 190px; flex: 0 0 190px; }
+    .wordmark { font-size: 64px; font-weight: 600; line-height: 1.1; }
+    .descriptor { font-size: 16px; margin-top: 18px; color: #B5C3C9; }
+    .specimens { display: grid; grid-template-columns: 1.2fr 1fr 1fr; }
+    .specimen { min-width: 0; padding: 28px 32px 30px; border-bottom: 1px solid #DAE2E5; }
+    .specimen + .specimen { border-left: 1px solid #DAE2E5; }
+    h2 { margin: 0 0 22px; font-size: 13px; font-weight: 600; }
+    .icons { display: flex; align-items: center; justify-content: flex-start; gap: 22px; min-height: 88px; }
+    .icon { width: 80px; height: 80px; display: block; border-radius: 22%; }
+    .circle { border-radius: 50%; }
+    .mono { background: #CDEDE3; padding: 14px; }
+    .sizes { gap: 16px; align-items: flex-end; }
+    .large { width: 64px; height: 64px; }
+    .medium { width: 40px; height: 40px; }
+    .small { width: 24px; height: 24px; }
+    .label { margin-top: 14px; font-size: 12px; color: #5A6A71; }
+    .brand { display: flex; align-items: center; gap: 12px; min-height: 40px; }
+    .brand-symbol { width: 40px; height: 40px; padding: 5px; border-radius: 10px; background: #131B20; flex: 0 0 40px; }
+    .brand strong { font-size: 20px; font-weight: 650; }
+    .brand small { display: block; margin-top: 2px; color: #5A6A71; font-size: 11px; }
+    .palette { display: flex; gap: 28px; align-items: center; padding: 25px 48px; }
+    .swatch { display: flex; align-items: center; gap: 9px; font-size: 12px; color: #5A6A71; }
+    .swatch i { width: 18px; height: 18px; border-radius: 50%; border: 1px solid #00000012; }
+    footer { padding: 0 48px 28px; display: flex; gap: 20px; flex-wrap: wrap; }
+    a { color: #006C78; font-size: 12px; text-underline-offset: 3px; }
+    @media (max-width: 650px) {
+      header { padding: 24px; align-items: flex-start; flex-direction: column; gap: 6px; }
+      .identity { padding: 32px 24px; gap: 16px; flex-direction: column; text-align: center; }
+      .identity .mark { width: 144px; height: 144px; flex-basis: 144px; }
+      .wordmark { font-size: 44px; }
+      .descriptor { font-size: 14px; margin-top: 10px; }
+      .specimens { grid-template-columns: 1fr; }
+      .specimen { padding: 24px; }
+      .specimen + .specimen { border-left: 0; }
+      .palette { padding: 24px; flex-wrap: wrap; gap: 18px; }
+      footer { padding: 0 24px 24px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="sheet">
+    <header><h1>WallMode</h1><p class="muted">Beeldmerk &amp; app-icoon</p></header>
+    <section class="identity" aria-label="WallMode beeldmerk">
+      <img class="mark" src="wallmode-mark.svg" alt="">
+      <div><p class="wordmark">WallMode</p><p class="descriptor">Your display. Your space.</p></div>
+    </section>
+    <div class="specimens">
+      <section class="specimen">
+        <h2>Android</h2>
+        <div class="icons">
+          <img class="icon" src="wallmode-icon.svg" alt="Afgerond app-icoon">
+          <img class="icon circle" src="wallmode-icon.svg" alt="Rond app-icoon">
+          <svg class="icon circle mono" viewBox="0 0 24 24" role="img" aria-label="Eenkleurig Android-icoon"><path d="M10.2,6.4L5.2,5.05C3.55,4.6 2,5.65 2,7.35V17C2,18.1 2.9,19 4,19H20C21.1,19 22,18.1 22,17V7.35C22,5.65 20.45,4.6 18.8,5.05L13.8,6.4" fill="none" stroke="#245448" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M5.4,8.5C5.4,8.05 5.8,7.75 6.2,7.9L10.5,9.35C10.8,9.45 11,9.7 11,10.05V15.95C11,16.2 10.9,16.4 10.7,16.55L9.9,17.1C9.7,17.25 9.45,17.3 9.2,17.2L5.85,16.05C5.55,15.95 5.4,15.7 5.4,15.4Z" fill="#245448"/>
+  <path d="M18.6,8.5C18.6,8.05 18.2,7.75 17.8,7.9L13.5,9.35C13.2,9.45 13,9.7 13,10.05V15.95C13,16.2 13.1,16.4 13.3,16.55L14.1,17.1C14.3,17.25 14.55,17.3 14.8,17.2L18.15,16.05C18.45,15.95 18.6,15.7 18.6,15.4Z" fill="#245448"/></svg>
+        </div>
+        <p class="label">Adaptief &amp; eenkleurig</p>
+      </section>
+      <section class="specimen">
+        <h2>Op elk formaat</h2>
+        <div class="icons sizes">
+          <img class="icon large" src="wallmode-icon.svg" alt="64 pixels">
+          <img class="icon medium" src="wallmode-icon.svg" alt="40 pixels">
+          <img class="icon small" src="wallmode-icon.svg" alt="24 pixels">
+        </div>
+        <p class="label">64 / 40 / 24 px</p>
+      </section>
+      <section class="specimen">
+        <h2>In de app</h2>
+        <div class="icons">
+          <div class="brand">
+            <img class="brand-symbol" src="wallmode-mark.svg" alt="">
+            <div><strong>WallMode</strong><small>Settings</small></div>
+          </div>
+        </div>
+        <p class="label">Android &amp; browserpaneel</p>
+      </section>
+    </div>
+    <div class="palette" aria-label="Kleuren">
+      <span class="swatch"><i style="background:#131B20"></i>#131B20</span>
+      <span class="swatch"><i style="background:#28C7D8"></i>#28C7D8</span>
+      <span class="swatch"><i style="background:#AEF6D8"></i>#AEF6D8</span>
+      <span class="swatch"><i style="background:#F4F7F8"></i>#F4F7F8</span>
+    </div>
+    <footer><a href="wallmode-icon.svg" download>App-icoon (SVG)</a><a href="wallmode-mark.svg" download>Beeldmerk (SVG)</a><a href="icon-concept-prompt.txt">Conceptprompt (Imagegen)</a></footer>
+  </main>
+</body>
+</html>
