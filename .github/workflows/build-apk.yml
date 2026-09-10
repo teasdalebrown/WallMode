@@ -1,0 +1,75 @@
+name: Build signed APK
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    if: github.repository == 'rvbcrs/WallMode'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android SDK packages
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+
+      - name: Unit tests
+        run: ./gradlew --no-daemon --max-workers=1 testDebugUnitTest
+
+      - name: Restore release signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.WALLMODE_KEYSTORE_BASE64 }}
+          SIGNING_PROPERTIES_BASE64: ${{ secrets.WALLMODE_SIGNING_PROPERTIES_BASE64 }}
+        run: |
+          test -n "$KEYSTORE_BASE64" || { echo 'Missing WALLMODE_KEYSTORE_BASE64 secret'; exit 1; }
+          test -n "$SIGNING_PROPERTIES_BASE64" || { echo 'Missing WALLMODE_SIGNING_PROPERTIES_BASE64 secret'; exit 1; }
+          umask 077
+          mkdir -p keystore
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > keystore/wallmode-release.jks
+          printf '%s' "$SIGNING_PROPERTIES_BASE64" | base64 --decode > keystore/signing.properties
+
+      - name: Build release APK
+        run: ./gradlew --no-daemon --max-workers=1 assembleRelease
+
+      - name: Release lint
+        run: ./gradlew --no-daemon --max-workers=1 lintRelease
+
+      - name: Remove signing files
+        if: always()
+        run: rm -f keystore/wallmode-release.jks keystore/signing.properties
+
+      - name: Verify and package APK
+        run: |
+          apk=app/build/outputs/apk/release/app-release.apk
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$apk"
+          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -c 4 "$apk"
+          mkdir -p artifacts
+          name="WallMode-${GITHUB_SHA:0:7}.apk"
+          cp "$apk" "artifacts/$name"
+          cd artifacts
+          sha256sum "$name" > "$name.sha256"
+
+      - name: Upload signed APK
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: WallMode-apk-${{ github.run_number }}-${{ github.run_attempt }}
+          path: |
+            artifacts/*.apk
+            artifacts/*.sha256
+          if-no-files-found: error
+          retention-days: 30

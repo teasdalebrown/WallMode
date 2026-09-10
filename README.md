@@ -526,6 +526,32 @@ and debug lint have passed with this profile. Lint reports 0 errors and 96
 warnings; clean-checkout and signed release builds still need verification. If
 a task runs out of heap, review the measured usage before raising limits or retrying.
 
+### Automatic APK builds
+
+Every push to this repository (including branches and tags) runs
+[Build signed APK](https://github.com/rvbcrs/WallMode/actions/workflows/build-apk.yml).
+It runs unit tests and release lint, builds with the existing release key, verifies
+the APK signature and alignment, and uploads the APK plus its SHA-256 checksum.
+You can also start a build with **Run workflow**.
+
+Open a successful run under **Actions**, then download **WallMode-apk-...** from
+**Artifacts**. Artifacts are retained for 30 days and require a GitHub login to
+download. These are development builds, not automatically published GitHub Releases.
+The APK filename includes the commit ID; the app version still comes from
+`app/build.gradle.kts` and is not automatically increased.
+
+Repository maintainers must configure these Actions secrets using the same key
+as previous releases, never a newly generated key for each build:
+
+- `WALLMODE_KEYSTORE_BASE64`: base64 contents of `keystore/wallmode-release.jks`.
+- `WALLMODE_SIGNING_PROPERTIES_BASE64`: base64 contents of `keystore/signing.properties`,
+  with `storeFile=keystore/wallmode-release.jks` and the matching alias/passwords.
+
+Missing secrets fail the build; there is no unsigned fallback. Signing files are
+removed before artifact upload. No pull-request event receives the signing secrets.
+For a permanent public download link, publish a GitHub Release after completing
+[RELEASING.md](RELEASING.md).
+
 ### APK location and installation
 
 The APK is written to:
@@ -552,6 +578,13 @@ WallMode is free and open-source. All app features are available without donatin
 
 - [Buy Me a Coffee](https://buymeacoffee.com/rvbcrs) — a one-off thank you.
 - [GitHub Sponsors](https://github.com/sponsors/rvbcrs) — support ongoing development.
+
+The repository's sponsor configuration is in [`.github/FUNDING.yml`](.github/FUNDING.yml):
+
+```yaml
+github: rvbcrs
+buy_me_a_coffee: rvbcrs
+```
 
 These are the same support destinations used by OpenNova. Find **Support WallMode** at the top of the **System** tab in the Android settings or browser control panel, highlighted in amber.
 
