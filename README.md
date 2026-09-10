@@ -14,6 +14,12 @@ WallMode targets Android 8.0 and newer. Its primary physical test device is the 
 
 > **Project status:** the WallMode version line is currently `0.1.0`, but no WallMode release has been tagged yet. Build or sideload the development APK as described below.
 
+## Support WallMode
+
+WallMode is free and open-source. If you would like to support development:
+
+[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/rvbcrs) [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-%E2%98%95-ffdd00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/rvbcrs) [![PayPal](https://img.shields.io/badge/PayPal-donate-00457C?logo=paypal&logoColor=white)](https://paypal.me/rvbcrs)
+
 ## Highlights
 
 - Fullscreen Android WebView kiosk for any HTTP(S) dashboard
@@ -571,12 +577,6 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 The debug package ID is `io.github.rvbcrs.wallmode.debug`; the release package ID is `io.github.rvbcrs.wallmode`.
 
 Before publishing the first signed APK, follow [RELEASING.md](RELEASING.md). A debug build is not a verified public release.
-
-## Support WallMode
-
-WallMode is free and open-source. If you would like to support development:
-
-[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/rvbcrs) [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-%E2%98%95-ffdd00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/rvbcrs) [![PayPal](https://img.shields.io/badge/PayPal-donate-00457C?logo=paypal&logoColor=white)](https://paypal.me/rvbcrs)
 
 ## Troubleshooting
 
