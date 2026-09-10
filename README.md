@@ -574,21 +574,9 @@ Before publishing the first signed APK, follow [RELEASING.md](RELEASING.md). A d
 
 ## Support WallMode
 
-WallMode is free and open-source. All app features are available without donating. If you would like to support development:
+WallMode is free and open-source. If you would like to support development:
 
-- [Buy Me a Coffee](https://buymeacoffee.com/rvbcrs) — a one-off thank you.
-- [GitHub Sponsors](https://github.com/sponsors/rvbcrs) — support ongoing development.
-
-The repository's sponsor configuration is in [`.github/FUNDING.yml`](.github/FUNDING.yml):
-
-```yaml
-github: rvbcrs
-buy_me_a_coffee: rvbcrs
-```
-
-These are the same support destinations used by OpenNova. Find **Support WallMode** at the top of the **System** tab in the Android settings or browser control panel, highlighted in amber.
-
-On Android, choose a provider, then **Open browser** or **Copy link**. If kiosk mode prevents another app from opening, use the link on your phone or computer instead. In the browser panel the links open a new tab on that computer or phone, leaving the wall display and unsaved settings untouched. WallMode never handles the payment itself.
+[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/rvbcrs) [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-%E2%98%95-ffdd00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/rvbcrs) [![PayPal](https://img.shields.io/badge/PayPal-donate-00457C?logo=paypal&logoColor=white)](https://paypal.me/rvbcrs)
 
 ## Troubleshooting
 
