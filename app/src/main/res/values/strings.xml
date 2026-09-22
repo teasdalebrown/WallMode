@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">WallMode</string>
+    <string name="app_name">Godzillar</string>
 
     <string name="settings_title">WallMode Control Center</string>
     <string name="settings_subtitle">Quick navigation for engine, dashboard, automation, and security controls.</string>

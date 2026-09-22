@@ -573,7 +573,10 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             settings.domStorageEnabled = true
             settings.loadsImagesAutomatically = true
             settings.useWideViewPort = true
-            settings.loadWithOverviewMode = true
+            settings.loadWithOverviewMode = false
+            // Keep the existing Home Assistant layout intact while fitting it to a
+            // 16:10 wall tablet viewport. This is a device-local WebView scale.
+            setInitialScale(100)
             settings.javaScriptCanOpenWindowsAutomatically = false
             settings.setSupportMultipleWindows(false)
             settings.allowFileAccess = false
@@ -624,6 +627,44 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
                 override fun onPageFinished(view: WebView, url: String?) {
                     if (!mainFrameLoadState.isVisible || !mainFrameLoadState.isCurrentUrl(url)) return
+                    view.evaluateJavascript(
+                        """
+                        (() => {
+                          const root = document.documentElement;
+                          root.style.zoom = '0.8';
+                          root.style.width = '125%';
+                          root.style.height = '125%';
+
+                          // The wall-tablet view benefits from a larger title, but the
+                          // shared Home Assistant dashboard must remain unchanged.
+                          if (location.pathname.endsWith('/wall-tablet/tablet')) {
+                            const enlargeWallTitle = () => {
+                              const visit = (scope) => {
+                                scope.querySelectorAll('*').forEach((element) => {
+                                  if (element.shadowRoot) visit(element.shadowRoot);
+                                  if (
+                                    element.tagName === 'H1' &&
+                                    element.textContent.trim().startsWith('Home Control Udon Thani') &&
+                                    !element.dataset.wallModeTitleScaled
+                                  ) {
+                                    const size = parseFloat(getComputedStyle(element).fontSize);
+                                    if (Number.isFinite(size)) {
+                                      element.style.setProperty('font-size', `${'$'}{size * 1.5}px`, 'important');
+                                      element.dataset.wallModeTitleScaled = 'true';
+                                    }
+                                  }
+                                });
+                              };
+                              visit(document);
+                            };
+                            clearInterval(window.__wallModeHeadingTimer);
+                            enlargeWallTitle();
+                            window.__wallModeHeadingTimer = setInterval(enlargeWallTitle, 3000);
+                          }
+                        })();
+                        """.trimIndent(),
+                        null,
+                    )
                     if (activeEventTakeover == null && !url.isNullOrBlank()) {
                         loadedDashboardUrl = url
                         prefs.recordLastUrl(url)
