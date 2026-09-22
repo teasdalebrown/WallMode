@@ -85,6 +85,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.FutureTask
 import java.util.concurrent.TimeUnit
+import kotlin.math.roundToInt
 
 private data class ActiveEventTakeover(
     val id: String,
@@ -137,6 +138,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private var presenceWakeCameraProvider: ProcessCameraProvider? = null
     private var presenceWakeExecutor: ExecutorService? = null
     private var presenceWakeStartPending = false
+    private var pulseWakeTrial: PulseWakeWordTrial? = null
+    private var voiceTrialOverlayHide: Runnable? = null
+    private var voicePermissionPrompted = false
 
     private var tapCount = 0
     private var firstTapAt = 0L
@@ -185,6 +189,15 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                     stopPresenceWakePipeline()
                     prefs.recordLastLoadStatus("Presence wake unavailable: camera permission denied")
                 }
+            }
+        }
+
+    private val voicePermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) {
+                startVoiceTrialIfPermitted()
+            } else {
+                showVoiceTrialOverlay(getString(R.string.voice_trial_failed), 4_000L, failed = true)
             }
         }
 
@@ -261,6 +274,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         prefs.applyThemeMode()
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        pulseWakeTrial = PulseWakeWordTrial(this, ::handlePulseWakeTrialEvent)
         bannerOverlay = BannerOverlay(binding.root) { noticeId, actionId ->
             mqttManager?.publishActionResponse(noticeId, actionId) == true
         }
@@ -272,6 +286,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         registerNetworkMonitoring()
         applyWindowSettings()
         maybePromptStartupCameraPermission()
+        maybePromptVoiceTrialPermission()
         refreshLocalControlServer()
         refreshMqttManager()
         applySchedulers()
@@ -294,6 +309,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         refreshLocalControlServer()
         refreshMqttManager()
         maybeAutoDiscoverAndConnect()
+        startVoiceTrialIfPermitted()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -317,6 +333,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
     override fun onPause() {
         super.onPause()
+        pulseWakeTrial?.stop()
         ambientDimRunnable?.let(mainHandler::removeCallbacks)
         ambientDimRunnable = null
         if (pendingStartupCameraPermissionRequest && autoDiscoveryJob?.isActive == true) {
@@ -365,6 +382,10 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
     override fun onDestroy() {
         super.onDestroy()
+        voiceTrialOverlayHide?.let(mainHandler::removeCallbacks)
+        voiceTrialOverlayHide = null
+        pulseWakeTrial?.close()
+        pulseWakeTrial = null
         bannerOverlay.dispose()
         announcementSpeaker.shutdown()
         autoDiscoveryJob?.cancel()
@@ -384,6 +405,66 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         destroyWebView()
         presenceWakeExecutor?.shutdown()
         presenceWakeExecutor = null
+    }
+
+    private fun maybePromptVoiceTrialPermission() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        if (voicePermissionPrompted) return
+        voicePermissionPrompted = true
+        mainHandler.postDelayed({
+            if (isFinishing || isDestroyed) return@postDelayed
+            MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.voice_trial_permission_title)
+                .setMessage(R.string.voice_trial_permission_message)
+                .setNegativeButton(R.string.not_now, null)
+                .setPositiveButton(R.string.voice_trial_permission_allow) { _, _ ->
+                    voicePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                }
+                .show()
+        }, 500L)
+    }
+
+    private fun startVoiceTrialIfPermitted() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        pulseWakeTrial?.start()
+    }
+
+    private fun handlePulseWakeTrialEvent(event: PulseWakeTrialEvent) {
+        runOnUiThread {
+            when (event) {
+                is PulseWakeTrialEvent.Ready -> Log.i(TAG, event.detail)
+                is PulseWakeTrialEvent.Detected -> showVoiceTrialOverlay(
+                    "Hey Pulse detected · ${(event.probability * 100).roundToInt()}%",
+                    3_000L,
+                    failed = false
+                )
+                is PulseWakeTrialEvent.Failed -> {
+                    Log.e(TAG, event.detail)
+                    showVoiceTrialOverlay(event.detail, 6_000L, failed = true)
+                }
+            }
+        }
+    }
+
+    private fun showVoiceTrialOverlay(message: String, durationMs: Long, failed: Boolean) {
+        voiceTrialOverlayHide?.let(mainHandler::removeCallbacks)
+        binding.voiceTrialMessage.text = message
+        binding.voiceTrialProgress.visibility = if (failed) View.GONE else View.VISIBLE
+        binding.voiceTrialOverlay.visibility = View.VISIBLE
+        binding.voiceTrialOverlay.bringToFront()
+        binding.adminTapZone.bringToFront()
+        voiceTrialOverlayHide = Runnable {
+            binding.voiceTrialOverlay.visibility = View.GONE
+            voiceTrialOverlayHide = null
+        }.also { mainHandler.postDelayed(it, durationMs) }
     }
 
     private fun setupAdminGesture() {
@@ -644,7 +725,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                                   if (element.shadowRoot) visit(element.shadowRoot);
                                   if (
                                     element.tagName === 'H1' &&
-                                    element.textContent.trim().startsWith('Home Control Udon Thani') &&
+                                    element.textContent.includes('Home Control Udon Thani') &&
                                     !element.dataset.wallModeTitleScaled
                                   ) {
                                     const size = parseFloat(getComputedStyle(element).fontSize);

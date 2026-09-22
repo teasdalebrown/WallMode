@@ -19,6 +19,7 @@ val hasReleaseSigning = listOf("storeFile", "storePassword", "keyAlias", "keyPas
 android {
     namespace = "io.github.rvbcrs.wallmode"
     compileSdk = 36
+    ndkVersion = "27.3.13750724"
 
     defaultConfig {
         applicationId = "io.github.rvbcrs.wallmode"
@@ -28,6 +29,10 @@ android {
         versionName = "0.1.0"
 
         testInstrumentationRunner = "io.github.rvbcrs.wallmode.LocalControlSettingsInstrumentation"
+
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
     }
 
     signingConfigs {
@@ -67,6 +72,13 @@ android {
         viewBinding = true
     }
 
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+
 }
 
 kotlin {
@@ -95,5 +107,6 @@ dependencies {
     implementation("org.nanohttpd:nanohttpd:2.3.1")
     implementation("org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.2.5")
     implementation("com.google.guava:guava:33.7.1-android")
+    implementation("com.google.ai.edge.litert:litert:1.4.1")
     testImplementation("junit:junit:4.13.2")
 }

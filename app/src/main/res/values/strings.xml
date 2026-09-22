@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="voice_trial_permission_title">Enable Hey Pulse trial</string>
+    <string name="voice_trial_permission_message">Godzillar needs microphone access to test local Hey Pulse detection. During this trial, audio stays on this tablet and is not sent to Pulse Core.</string>
+    <string name="voice_trial_permission_allow">Enable trial</string>
+    <string name="voice_trial_listening">Hey Pulse detected</string>
+    <string name="voice_trial_failed">Voice trial unavailable</string>
     <string name="app_name">Godzillar</string>
 
     <string name="settings_title">WallMode Control Center</string>
