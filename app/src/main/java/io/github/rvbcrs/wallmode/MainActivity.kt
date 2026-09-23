@@ -5,6 +5,7 @@ import android.annotation.SuppressLint
 import android.app.ActivityManager
 import android.os.BatteryManager
 import android.app.admin.DevicePolicyManager
+import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -141,6 +142,13 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private var pulseWakeTrial: PulseWakeWordTrial? = null
     private var voiceTrialOverlayHide: Runnable? = null
     private var voicePermissionPrompted = false
+    private var batteryReceiverRegistered = false
+
+    private val batteryStatusReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            updateBatteryStatus(intent)
+        }
+    }
 
     private var tapCount = 0
     private var firstTapAt = 0L
@@ -302,6 +310,14 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
     override fun onResume() {
         super.onResume()
+        if (!batteryReceiverRegistered) {
+            val stickyBattery = registerReceiver(
+                batteryStatusReceiver,
+                IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+            )
+            batteryReceiverRegistered = true
+            updateBatteryStatus(stickyBattery)
+        }
         prefs.applyThemeMode()
         applyWindowSettings()
         resetAmbientTimer()
@@ -333,6 +349,10 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
     override fun onPause() {
         super.onPause()
+        if (batteryReceiverRegistered) {
+            unregisterReceiver(batteryStatusReceiver)
+            batteryReceiverRegistered = false
+        }
         pulseWakeTrial?.stop()
         ambientDimRunnable?.let(mainHandler::removeCallbacks)
         ambientDimRunnable = null
@@ -435,6 +455,25 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             return
         }
         pulseWakeTrial?.start()
+    }
+
+    private fun updateBatteryStatus(intent: Intent?) {
+        val level = intent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+        val scale = intent?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+        val percent = if (level >= 0 && scale > 0) {
+            (level * 100 / scale).coerceIn(0, 100)
+        } else {
+            null
+        }
+        val status = intent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+        val charging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
+            status == BatteryManager.BATTERY_STATUS_FULL
+        binding.batteryStatus.text = when {
+            percent == null -> getString(R.string.battery_status_unknown)
+            charging -> getString(R.string.battery_status_charging_format, percent)
+            else -> getString(R.string.battery_status_format, percent)
+        }
+        binding.batteryStatus.contentDescription = binding.batteryStatus.text
     }
 
     private fun handlePulseWakeTrialEvent(event: PulseWakeTrialEvent) {
