@@ -950,7 +950,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                           ) {
                             window.__wallModePlaybackReturnBound = true;
                             window.addEventListener('pulse-player-playback-started', () => {
-                              location.href = 'wallmode://player/complete';
+                              setTimeout(() => {
+                                location.href = 'wallmode://player/complete';
+                              }, ${PULSE_PLAYER_SUCCESS_RETURN_DELAY_MS});
                             });
                           }
 
@@ -2769,6 +2771,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         private const val MQTT_STATE_INTERVAL_MS = 60_000L
         private const val MAIN_FRAME_LOAD_TIMEOUT_MS = 30_000L
         private const val PULSE_PLAYER_IDLE_RETURN_MS = 90_000L
+        private const val PULSE_PLAYER_SUCCESS_RETURN_DELAY_MS = 10_000L
         private const val PULSE_PLAYER_URL = "http://192.168.4.211:3002/?wallmode=1"
         private const val PRESENCE_ANALYSIS_INTERVAL_MS = 250L
         private const val PREVIEW_MAX_DIMENSION_PX = 720
