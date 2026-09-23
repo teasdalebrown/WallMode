@@ -21,6 +21,7 @@ import android.hardware.camera2.CaptureRequest
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
+import android.media.MediaPlayer
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -77,6 +78,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.ByteBuffer
@@ -142,6 +144,10 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private var pulseWakeTrial: PulseWakeWordTrial? = null
     private var voiceTrialOverlayHide: Runnable? = null
     private var voicePermissionPrompted = false
+    private val pulseVoiceClient = PulseVoiceClient()
+    private var voiceRequestJob: Job? = null
+    private var voiceHeartbeatJob: Job? = null
+    private var voiceMediaPlayer: MediaPlayer? = null
     private var batteryReceiverRegistered = false
 
     private val batteryStatusReceiver = object : BroadcastReceiver() {
@@ -205,7 +211,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             if (granted) {
                 startVoiceTrialIfPermitted()
             } else {
-                showVoiceTrialOverlay(getString(R.string.voice_trial_failed), 4_000L, failed = true)
+                showVoiceState(getString(R.string.voice_trial_failed), failed = true, autoHideMs = 4_000L)
             }
         }
 
@@ -283,6 +289,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         pulseWakeTrial = PulseWakeWordTrial(this, ::handlePulseWakeTrialEvent)
+        binding.voiceCancel.setOnClickListener { cancelPulseVoiceInteraction() }
         bannerOverlay = BannerOverlay(binding.root) { noticeId, actionId ->
             mqttManager?.publishActionResponse(noticeId, actionId) == true
         }
@@ -354,6 +361,11 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             batteryReceiverRegistered = false
         }
         pulseWakeTrial?.stop()
+        voiceRequestJob?.cancel()
+        voiceRequestJob = null
+        voiceHeartbeatJob?.cancel()
+        voiceHeartbeatJob = null
+        releaseVoiceMediaPlayer()
         ambientDimRunnable?.let(mainHandler::removeCallbacks)
         ambientDimRunnable = null
         if (pendingStartupCameraPermissionRequest && autoDiscoveryJob?.isActive == true) {
@@ -406,6 +418,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         voiceTrialOverlayHide = null
         pulseWakeTrial?.close()
         pulseWakeTrial = null
+        releaseVoiceMediaPlayer()
         bannerOverlay.dispose()
         announcementSpeaker.shutdown()
         autoDiscoveryJob?.cancel()
@@ -455,6 +468,18 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             return
         }
         pulseWakeTrial?.start()
+        startVoiceHeartbeat()
+    }
+
+    private fun startVoiceHeartbeat() {
+        if (voiceHeartbeatJob?.isActive == true) return
+        voiceHeartbeatJob = scope.launch(Dispatchers.IO) {
+            while (isActive) {
+                runCatching { pulseVoiceClient.heartbeat() }
+                    .onFailure { Log.w(TAG, "Unable to register honor_endpoint", it) }
+                delay(30_000L)
+            }
+        }
     }
 
     private fun updateBatteryStatus(intent: Intent?) {
@@ -480,30 +505,143 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         runOnUiThread {
             when (event) {
                 is PulseWakeTrialEvent.Ready -> Log.i(TAG, event.detail)
-                is PulseWakeTrialEvent.Detected -> showVoiceTrialOverlay(
-                    "Hey Pulse detected · ${(event.probability * 100).roundToInt()}%",
-                    3_000L,
-                    failed = false
-                )
+                is PulseWakeTrialEvent.Detected -> {
+                    Log.i(TAG, "Hey Pulse detected at ${(event.probability * 100).roundToInt()}%")
+                    showVoiceState(getString(R.string.voice_listening))
+                }
+                PulseWakeTrialEvent.SpeechStarted -> Unit
+                is PulseWakeTrialEvent.AudioCaptured -> processPulseVoiceAudio(event.samples)
+                PulseWakeTrialEvent.NoSpeech -> {
+                    hideVoiceOverlay()
+                    resumeVoiceAfterDelay()
+                }
                 is PulseWakeTrialEvent.Failed -> {
                     Log.e(TAG, event.detail)
-                    showVoiceTrialOverlay(event.detail, 6_000L, failed = true)
+                    showVoiceState(event.detail, failed = true, autoHideMs = 6_000L)
                 }
             }
         }
     }
 
-    private fun showVoiceTrialOverlay(message: String, durationMs: Long, failed: Boolean) {
+    private fun showVoiceState(
+        message: String,
+        transcript: String = "",
+        response: String = "",
+        failed: Boolean = false,
+        autoHideMs: Long = 0L
+    ) {
         voiceTrialOverlayHide?.let(mainHandler::removeCallbacks)
+        voiceTrialOverlayHide = null
         binding.voiceTrialMessage.text = message
         binding.voiceTrialProgress.visibility = if (failed) View.GONE else View.VISIBLE
+        binding.pulseListeningVisual.setMode(
+            when {
+                failed -> PulseVisualMode.FAILED
+                message == getString(R.string.voice_thinking) -> PulseVisualMode.THINKING
+                message == getString(R.string.voice_responding) -> PulseVisualMode.RESPONDING
+                else -> PulseVisualMode.LISTENING
+            }
+        )
+        binding.voiceTranscript.text = transcript
+        binding.voiceTranscript.visibility = if (transcript.isBlank()) View.GONE else View.VISIBLE
+        binding.voiceResponse.text = response
+        binding.voiceResponse.visibility = if (response.isBlank()) View.GONE else View.VISIBLE
         binding.voiceTrialOverlay.visibility = View.VISIBLE
         binding.voiceTrialOverlay.bringToFront()
         binding.adminTapZone.bringToFront()
-        voiceTrialOverlayHide = Runnable {
-            binding.voiceTrialOverlay.visibility = View.GONE
-            voiceTrialOverlayHide = null
-        }.also { mainHandler.postDelayed(it, durationMs) }
+        if (autoHideMs > 0) {
+            voiceTrialOverlayHide = Runnable { hideVoiceOverlay() }
+                .also { mainHandler.postDelayed(it, autoHideMs) }
+        }
+    }
+
+    private fun processPulseVoiceAudio(samples: ShortArray) {
+        pulseWakeTrial?.stop()
+        showVoiceState(getString(R.string.voice_thinking))
+        voiceRequestJob?.cancel()
+        voiceRequestJob = scope.launch {
+            val outcome = withContext(Dispatchers.IO) { runCatching { pulseVoiceClient.process(samples) } }
+            outcome.onSuccess { (result, speech) ->
+                if (result.ignored) {
+                    hideVoiceOverlay()
+                    resumeVoiceAfterDelay()
+                    return@onSuccess
+                }
+                val heading = if (result.ok) getString(R.string.voice_responding) else "Unable to complete"
+                showVoiceState(
+                    heading,
+                    transcript = result.transcript,
+                    response = result.response,
+                    failed = !result.ok,
+                    autoHideMs = if (speech == null) 5_000L else 0L
+                )
+                if (speech != null) playPulseSpeech(speech) else resumeVoiceAfterDelay()
+            }.onFailure { error ->
+                Log.e(TAG, "Pulse voice request failed", error)
+                showVoiceState(
+                    "Pulse Core unavailable",
+                    response = error.message ?: "The request could not be completed",
+                    failed = true,
+                    autoHideMs = 7_000L
+                )
+                resumeVoiceAfterDelay()
+            }
+            voiceRequestJob = null
+        }
+    }
+
+    private fun playPulseSpeech(wav: ByteArray) {
+        releaseVoiceMediaPlayer()
+        val file = File.createTempFile("pulse-response-", ".wav", cacheDir).apply { writeBytes(wav) }
+        voiceMediaPlayer = MediaPlayer().apply {
+            setDataSource(file.absolutePath)
+            setOnCompletionListener {
+                file.delete()
+                releaseVoiceMediaPlayer()
+                hideVoiceOverlay()
+                resumeVoiceAfterDelay(6_000L)
+            }
+            setOnErrorListener { _, _, _ ->
+                file.delete()
+                releaseVoiceMediaPlayer()
+                showVoiceState("Playback failed", failed = true, autoHideMs = 5_000L)
+                resumeVoiceAfterDelay()
+                true
+            }
+            prepare()
+            start()
+        }
+    }
+
+    private fun cancelPulseVoiceInteraction() {
+        voiceRequestJob?.cancel()
+        voiceRequestJob = null
+        pulseWakeTrial?.cancelCommandCapture()
+        releaseVoiceMediaPlayer()
+        hideVoiceOverlay()
+        resumeVoiceAfterDelay()
+    }
+
+    private fun resumeVoiceAfterDelay(delayMs: Long = 2_500L) {
+        mainHandler.postDelayed({
+            if (!isFinishing && !isDestroyed && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                startVoiceTrialIfPermitted()
+            }
+        }, delayMs)
+    }
+
+    private fun releaseVoiceMediaPlayer() {
+        voiceMediaPlayer?.let { player ->
+            runCatching { player.stop() }
+            player.release()
+        }
+        voiceMediaPlayer = null
+    }
+
+    private fun hideVoiceOverlay() {
+        voiceTrialOverlayHide?.let(mainHandler::removeCallbacks)
+        voiceTrialOverlayHide = null
+        binding.voiceTrialOverlay.visibility = View.GONE
     }
 
     private fun setupAdminGesture() {

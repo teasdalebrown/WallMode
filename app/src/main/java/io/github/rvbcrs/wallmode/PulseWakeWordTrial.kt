@@ -19,6 +19,9 @@ import kotlin.math.roundToInt
 internal sealed interface PulseWakeTrialEvent {
     data class Ready(val detail: String) : PulseWakeTrialEvent
     data class Detected(val probability: Float) : PulseWakeTrialEvent
+    data object SpeechStarted : PulseWakeTrialEvent
+    data class AudioCaptured(val samples: ShortArray) : PulseWakeTrialEvent
+    data object NoSpeech : PulseWakeTrialEvent
     data class Failed(val detail: String) : PulseWakeTrialEvent
 }
 
@@ -40,6 +43,10 @@ internal class PulseWakeWordTrial(
         private const val PROBABILITY_CUTOFF = 0.71f
         private const val SLIDING_WINDOW_SIZE = 3
         private const val COOLDOWN_INFERENCES = 34 // roughly two seconds
+        private const val MAX_CAPTURE_SAMPLES = SAMPLE_RATE * 7
+        private const val SPEECH_START_TIMEOUT_SAMPLES = SAMPLE_RATE * 3
+        private const val SILENCE_END_SAMPLES = (SAMPLE_RATE * 1.15f).toInt()
+        private const val SPEECH_LEVEL = 520
     }
 
     private val applicationContext = context.applicationContext
@@ -60,6 +67,12 @@ internal class PulseWakeWordTrial(
     private var echoCanceler: AcousticEchoCanceler? = null
     private var captureThread: Thread? = null
     private var cooldown = 0
+    @Volatile private var capturingCommand = false
+    private val commandSamples = ArrayList<Short>(MAX_CAPTURE_SAMPLES)
+    private var commandSpeechStarted = false
+    private var commandSpeechChunks = 0
+    private var commandSpeechVisible = false
+    private var commandSilenceSamples = 0
 
     init {
         loadModel()
@@ -155,7 +168,9 @@ internal class PulseWakeWordTrial(
                     if (count > 0) filled += count
                     else if (count < 0) throw IllegalStateException("AudioRecord error $count")
                 }
-                if (filled == chunk.size) processChunk(chunk)
+                if (filled == chunk.size) {
+                    if (capturingCommand) processCommandChunk(chunk) else processChunk(chunk)
+                }
             }
         } catch (error: Exception) {
             if (running.get()) {
@@ -198,9 +213,59 @@ internal class PulseWakeWordTrial(
         if (average >= PROBABILITY_CUTOFF) {
             cooldown = COOLDOWN_INFERENCES
             recentScores.clear()
+            beginCommandCapture()
             Log.i(TAG, "Hey Pulse detected probability=$average")
             onEvent(PulseWakeTrialEvent.Detected(average))
         }
+    }
+
+    @Synchronized
+    private fun beginCommandCapture() {
+        capturingCommand = true
+        commandSamples.clear()
+        commandSpeechStarted = false
+        commandSpeechChunks = 0
+        commandSpeechVisible = false
+        commandSilenceSamples = 0
+    }
+
+    @Synchronized
+    private fun processCommandChunk(chunk: ShortArray) {
+        commandSamples.ensureCapacity((commandSamples.size + chunk.size).coerceAtMost(MAX_CAPTURE_SAMPLES))
+        for (sample in chunk) {
+            if (commandSamples.size >= MAX_CAPTURE_SAMPLES) break
+            commandSamples.add(sample)
+        }
+        val meanAbsoluteLevel = chunk.sumOf { kotlin.math.abs(it.toInt()) }.toDouble() / chunk.size
+        if (meanAbsoluteLevel >= SPEECH_LEVEL) {
+            commandSpeechStarted = true
+            commandSpeechChunks++
+            commandSilenceSamples = 0
+            if (!commandSpeechVisible && commandSpeechChunks >= 2) {
+                commandSpeechVisible = true
+                onEvent(PulseWakeTrialEvent.SpeechStarted)
+            }
+        } else if (commandSpeechStarted) {
+            commandSilenceSamples += chunk.size
+        }
+        val timedOutWaiting = !commandSpeechStarted && commandSamples.size >= SPEECH_START_TIMEOUT_SAMPLES
+        val utteranceEnded = commandSpeechStarted && commandSilenceSamples >= SILENCE_END_SAMPLES
+        val captureFull = commandSamples.size >= MAX_CAPTURE_SAMPLES
+        if (timedOutWaiting || utteranceEnded || captureFull) finishCommandCapture(timedOutWaiting)
+    }
+
+    private fun finishCommandCapture(noSpeech: Boolean) {
+        capturingCommand = false
+        if (noSpeech) {
+            commandSamples.clear()
+            onEvent(PulseWakeTrialEvent.NoSpeech)
+        } else {
+            val captured = ShortArray(commandSamples.size) { commandSamples[it] }
+            commandSamples.clear()
+            onEvent(PulseWakeTrialEvent.AudioCaptured(captured))
+        }
+        resetDetector()
+        cooldown = COOLDOWN_INFERENCES
     }
 
     @Synchronized
@@ -210,6 +275,12 @@ internal class PulseWakeWordTrial(
         pendingFrames.clear()
         recentScores.clear()
         cooldown = 0
+        capturingCommand = false
+        commandSamples.clear()
+        commandSpeechStarted = false
+        commandSpeechChunks = 0
+        commandSpeechVisible = false
+        commandSilenceSamples = 0
     }
 
     fun stop() {
@@ -223,6 +294,18 @@ internal class PulseWakeWordTrial(
         noiseSuppressor = null
         echoCanceler = null
         audioRecord = null
+    }
+
+    @Synchronized
+    fun cancelCommandCapture() {
+        if (!capturingCommand) return
+        capturingCommand = false
+        commandSamples.clear()
+        commandSpeechStarted = false
+        commandSpeechChunks = 0
+        commandSpeechVisible = false
+        commandSilenceSamples = 0
+        resetDetector()
     }
 
     override fun close() {

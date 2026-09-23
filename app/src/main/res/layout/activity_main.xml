@@ -195,44 +195,77 @@
         </com.google.android.material.card.MaterialCardView>
     </FrameLayout>
 
-    <com.google.android.material.card.MaterialCardView
+    <FrameLayout
         android:id="@+id/voice_trial_overlay"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom|center_horizontal"
-        android:layout_margin="28dp"
-        android:visibility="gone"
-        app:cardBackgroundColor="#E6121D29"
-        app:cardCornerRadius="24dp"
-        app:cardElevation="8dp"
-        app:strokeColor="@color/brand_primary"
-        app:strokeWidth="1dp">
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#B800080C"
+        android:clickable="true"
+        android:focusable="true"
+        android:padding="24dp"
+        android:visibility="gone">
+
+        <io.github.rvbcrs.wallmode.PulseListeningVisualView
+            android:id="@+id/pulse_listening_visual"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
 
         <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingHorizontal="22dp"
-            android:paddingVertical="14dp">
+            android:layout_width="680dp"
+            android:layout_height="match_parent"
+            android:layout_gravity="center"
+            android:gravity="center_horizontal"
+            android:orientation="vertical"
+            android:paddingTop="410dp">
 
             <ProgressBar
                 android:id="@+id/voice_trial_progress"
-                android:layout_width="24dp"
-                android:layout_height="24dp"
-                android:indeterminate="true"
-                android:indeterminateTint="@color/brand_primary" />
+                android:layout_width="1dp"
+                android:layout_height="1dp"
+                android:visibility="invisible" />
 
             <TextView
                 android:id="@+id/voice_trial_message"
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="12dp"
-                android:text="@string/voice_trial_listening"
-                android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
-                android:textColor="@color/recovery_on_bg" />
+                android:layout_marginTop="16dp"
+                android:gravity="center"
+                android:text="@string/voice_listening"
+                android:textAppearance="@style/TextAppearance.Material3.HeadlineMedium"
+                android:textColor="@color/recovery_on_bg"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/voice_transcript"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:gravity="center"
+                android:textAppearance="@style/TextAppearance.Material3.TitleLarge"
+                android:textColor="@color/brand_primary"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/voice_response"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:ellipsize="end"
+                android:gravity="center"
+                android:maxLines="7"
+                android:textAppearance="@style/TextAppearance.Material3.BodyLarge"
+                android:textColor="@color/recovery_on_bg_subtle"
+                android:visibility="gone" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/voice_cancel"
+                style="@style/Widget.WallMode.Button.Tonal"
+                android:layout_width="160dp"
+                android:layout_height="48dp"
+                android:layout_marginTop="20dp"
+                android:text="@string/voice_cancel" />
         </LinearLayout>
-    </com.google.android.material.card.MaterialCardView>
+    </FrameLayout>
 
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/battery_status_card"
