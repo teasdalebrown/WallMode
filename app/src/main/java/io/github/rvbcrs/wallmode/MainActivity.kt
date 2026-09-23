@@ -671,7 +671,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
     private fun setupPulsePlayerControl() {
         binding.pulsePlayerControl.setOnClickListener {
-            if (pulsePlayerMode) returnToPulseHome() else openPulsePlayer()
+            if (pulsePlayerMode) returnToPulseHome()
         }
     }
 
@@ -683,6 +683,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         pulsePlayerMode = true
         binding.pulsePlayerControl.setImageResource(R.drawable.ic_pulse_player_back)
         binding.pulsePlayerControl.contentDescription = getString(R.string.pulse_player_return)
+        binding.pulsePlayerControl.visibility = View.VISIBLE
         loadWebUrl(PULSE_PLAYER_URL, prefs.load(), rememberAsDashboard = false)
         schedulePulsePlayerReturn()
     }
@@ -692,8 +693,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         pulsePlayerReturnRunnable?.let(mainHandler::removeCallbacks)
         pulsePlayerReturnRunnable = null
         pulsePlayerMode = false
-        binding.pulsePlayerControl.setImageResource(R.drawable.ic_pulse_player_music)
         binding.pulsePlayerControl.contentDescription = getString(R.string.pulse_player_open)
+        binding.pulsePlayerControl.visibility = View.GONE
         loadDashboard()
         resetAmbientTimer()
     }
@@ -959,19 +960,73 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                           // The wall-tablet view benefits from a larger title, but the
                           // shared Home Assistant dashboard must remain unchanged.
                           if (location.pathname.endsWith('/wall-tablet/tablet')) {
+                            const findHaCard = (node) => {
+                              let current = node;
+                              while (current) {
+                                if (current.tagName === 'HA-CARD') return current;
+                                if (current.parentElement) {
+                                  current = current.parentElement;
+                                } else {
+                                  const rootNode = current.getRootNode?.();
+                                  current = rootNode?.host || null;
+                                }
+                              }
+                              return null;
+                            };
                             const enlargeWallTitle = () => {
                               const visit = (scope) => {
                                 scope.querySelectorAll('*').forEach((element) => {
                                   if (element.shadowRoot) visit(element.shadowRoot);
                                   if (
                                     element.tagName === 'H1' &&
-                                    element.textContent.includes('Home Control Udon Thani') &&
+                                    element.textContent.includes('Pulse Home') &&
                                     !element.dataset.wallModeTitleScaled
                                   ) {
                                     const size = parseFloat(getComputedStyle(element).fontSize);
                                     if (Number.isFinite(size)) {
                                       element.style.setProperty('font-size', `${'$'}{size * 1.5}px`, 'important');
                                       element.dataset.wallModeTitleScaled = 'true';
+                                    }
+                                  }
+                                  if (
+                                    element.tagName === 'H1' &&
+                                    element.textContent.includes('Pulse Home')
+                                  ) {
+                                    const card = findHaCard(element);
+                                    if (card && !card.querySelector('.wallmode-player-button')) {
+                                      card.style.setProperty('position', 'relative', 'important');
+                                      card.style.setProperty('overflow', 'visible', 'important');
+                                      const button = document.createElement('button');
+                                      button.className = 'wallmode-player-button';
+                                      button.type = 'button';
+                                      button.setAttribute('aria-label', 'Open Pulse Player');
+                                      button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"/></svg>';
+                                      button.style.cssText = `
+                                        position: absolute;
+                                        right: -54px;
+                                        top: 50%;
+                                        transform: translateY(-50%);
+                                        width: 42px;
+                                        height: 42px;
+                                        display: grid;
+                                        place-items: center;
+                                        padding: 9px;
+                                        margin: 0;
+                                        border: 2px solid #8b7bff;
+                                        border-radius: 50%;
+                                        color: #fff;
+                                        background: linear-gradient(180deg, #374151, #111827);
+                                        box-shadow: 0 4px 10px rgba(0,0,0,.42), inset 0 1px 0 rgba(255,255,255,.18);
+                                        cursor: pointer;
+                                        z-index: 3;
+                                      `;
+                                      button.querySelector('svg').style.cssText = 'display:block;width:100%;height:100%';
+                                      button.addEventListener('click', (event) => {
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                        location.href = 'wallmode://player/open';
+                                      });
+                                      card.appendChild(button);
                                     }
                                   }
                                 });
@@ -1017,6 +1072,10 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                         return false
                     }
                     val requestedUrl = request.url?.toString()
+                    if (isPulsePlayerOpenUrl(requestedUrl)) {
+                        openPulsePlayer()
+                        return true
+                    }
                     if (isPulsePlayerReturnUrl(requestedUrl)) {
                         returnToPulseHome()
                         return true
@@ -1134,6 +1193,13 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         return uri.scheme.equals("wallmode", ignoreCase = true) &&
             uri.host.equals("player", ignoreCase = true) &&
             uri.path in setOf("/complete", "/return")
+    }
+
+    private fun isPulsePlayerOpenUrl(url: String?): Boolean {
+        val uri = parseUri(url) ?: return false
+        return uri.scheme.equals("wallmode", ignoreCase = true) &&
+            uri.host.equals("player", ignoreCase = true) &&
+            uri.path == "/open"
     }
 
     private fun isTrustedOrigin(candidateUrl: String?): Boolean {
@@ -1507,7 +1573,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             setWindowBrightness(WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE)
         }
         if (wasAmbient) publishMqttState()
-        binding.pulsePlayerControl.visibility = View.VISIBLE
+        binding.pulsePlayerControl.visibility = if (pulsePlayerMode) View.VISIBLE else View.GONE
     }
 
     private fun startAmbientBackground(settings: KioskSettings) {

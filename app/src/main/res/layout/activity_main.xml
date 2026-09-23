@@ -271,8 +271,8 @@
         android:id="@+id/pulse_player_control"
         android:layout_width="46dp"
         android:layout_height="46dp"
-        android:layout_gravity="top|center_horizontal"
-        android:layout_marginTop="86dp"
+        android:layout_gravity="top|start"
+        android:layout_margin="12dp"
         android:background="@drawable/bg_pulse_player_button"
         android:clickable="true"
         android:contentDescription="@string/pulse_player_open"
@@ -280,8 +280,9 @@
         android:focusable="true"
         android:padding="11dp"
         android:scaleType="fitCenter"
-        android:src="@drawable/ic_pulse_player_music"
-        android:tint="@color/white" />
+        android:src="@drawable/ic_pulse_player_back"
+        android:tint="@color/white"
+        android:visibility="gone" />
 
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/battery_status_card"
