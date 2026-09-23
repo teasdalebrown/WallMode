@@ -681,7 +681,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         ambientDimRunnable = null
         leaveAmbientMode()
         pulsePlayerMode = true
-        binding.pulsePlayerControlLabel.setText(R.string.pulse_player_return)
+        binding.pulsePlayerControl.setImageResource(R.drawable.ic_pulse_player_back)
         binding.pulsePlayerControl.contentDescription = getString(R.string.pulse_player_return)
         loadWebUrl(PULSE_PLAYER_URL, prefs.load(), rememberAsDashboard = false)
         schedulePulsePlayerReturn()
@@ -692,7 +692,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         pulsePlayerReturnRunnable?.let(mainHandler::removeCallbacks)
         pulsePlayerReturnRunnable = null
         pulsePlayerMode = false
-        binding.pulsePlayerControlLabel.setText(R.string.pulse_player_open)
+        binding.pulsePlayerControl.setImageResource(R.drawable.ic_pulse_player_music)
         binding.pulsePlayerControl.contentDescription = getString(R.string.pulse_player_open)
         loadDashboard()
         resetAmbientTimer()

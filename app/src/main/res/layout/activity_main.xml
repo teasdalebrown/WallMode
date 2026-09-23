@@ -267,34 +267,21 @@
         </LinearLayout>
     </FrameLayout>
 
-    <com.google.android.material.card.MaterialCardView
+    <androidx.appcompat.widget.AppCompatImageButton
         android:id="@+id/pulse_player_control"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
+        android:layout_width="46dp"
+        android:layout_height="46dp"
         android:layout_gravity="top|center_horizontal"
-        android:layout_marginTop="118dp"
-        android:translationZ="6dp"
+        android:layout_marginTop="86dp"
+        android:background="@drawable/bg_pulse_player_button"
         android:clickable="true"
+        android:contentDescription="@string/pulse_player_open"
+        android:elevation="12dp"
         android:focusable="true"
-        android:foreground="?attr/selectableItemBackground"
-        app:cardBackgroundColor="#F21A2234"
-        app:cardCornerRadius="21dp"
-        app:cardElevation="10dp"
-        app:strokeColor="@color/brand_primary"
-        app:strokeWidth="2dp">
-
-        <TextView
-            android:id="@+id/pulse_player_control_label"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:minWidth="42dp"
-            android:minHeight="42dp"
-            android:gravity="center"
-            android:text="@string/pulse_player_open"
-            android:textColor="@color/white"
-            android:textSize="18sp"
-            android:textStyle="bold" />
-    </com.google.android.material.card.MaterialCardView>
+        android:padding="11dp"
+        android:scaleType="fitCenter"
+        android:src="@drawable/ic_pulse_player_music"
+        android:tint="@color/white" />
 
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/battery_status_card"
