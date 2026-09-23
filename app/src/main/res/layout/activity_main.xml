@@ -238,11 +238,12 @@
         android:id="@+id/battery_status_card"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_gravity="bottom|end"
-        android:layout_margin="12dp"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="10dp"
+        android:layout_marginEnd="108dp"
         app:cardBackgroundColor="#D9121D29"
-        app:cardCornerRadius="14dp"
-        app:cardElevation="3dp"
+        app:cardCornerRadius="10dp"
+        app:cardElevation="2dp"
         app:strokeColor="#667A8DA8"
         app:strokeWidth="1dp">
 
@@ -250,11 +251,11 @@
             android:id="@+id/battery_status"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:paddingHorizontal="10dp"
-            android:paddingVertical="6dp"
+            android:paddingHorizontal="7dp"
+            android:paddingVertical="3dp"
             android:text="@string/battery_status_unknown"
             android:textColor="@color/white"
-            android:textSize="13sp"
+            android:textSize="10sp"
             android:textStyle="bold" />
     </com.google.android.material.card.MaterialCardView>
 
