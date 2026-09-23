@@ -29,6 +29,9 @@ internal class PulseVoiceClient(
         if (transcript.isBlank()) {
             return PulseVoiceResult("", "I didn't hear a command.", false, error = "No speech was recognised") to null
         }
+        if (!PulseCommandGate.accepts(transcript)) {
+            return PulseVoiceResult(transcript, "", true, ignored = true) to null
+        }
         val route = postJson(
             "/transcript",
             JSONObject().put("endpoint_id", endpointId).put("transcript", transcript)
@@ -63,7 +66,9 @@ internal class PulseVoiceClient(
         val result = route.optJSONObject("result")
         result?.optString("confirmation")?.trim()?.takeIf { it.isNotBlank() }?.let { return it }
         result?.optJSONObject("result")?.optString("confirmation")?.trim()?.takeIf { it.isNotBlank() }?.let { return it }
-        return if (route.optBoolean("ok", false)) "Done" else ""
+        // A bare success flag is not confirmation that the requested action
+        // completed. Never invent spoken confirmation here.
+        return ""
     }
 
     private fun repairObservedWakePrefix(value: String): String {

@@ -564,7 +564,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             outcome.onSuccess { (result, speech) ->
                 if (result.ignored) {
                     hideVoiceOverlay()
-                    resumeVoiceAfterDelay()
+                    resumeVoiceAfterDelay(IGNORED_SPEECH_REARM_DELAY_MS)
                     return@onSuccess
                 }
                 val heading = if (result.ok) getString(R.string.voice_responding) else "Unable to complete"
@@ -2683,6 +2683,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         private const val IMMICH_RETRY_DELAY_MS = 30_000L
         private const val IMMICH_THUMBNAIL_RETRY_DELAY_MS = 5_000L
         private const val QUICK_RELOAD_DELAY_MS = 1_200L
+        private const val IGNORED_SPEECH_REARM_DELAY_MS = 10_000L
         private const val SCREENSAVER_WEATHER_REFRESH_MS = 30 * 60_000L
         private const val MQTT_STATE_INTERVAL_MS = 60_000L
         private const val MAIN_FRAME_LOAD_TIMEOUT_MS = 30_000L
