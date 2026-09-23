@@ -322,6 +322,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
     override fun onResume() {
         super.onResume()
+        if (webViewConfigured && !isAmbientDimmed) binding.webView.onResume()
         if (!batteryReceiverRegistered) {
             val stickyBattery = registerReceiver(
                 batteryStatusReceiver,
@@ -361,6 +362,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
     override fun onPause() {
         super.onPause()
+        if (webViewConfigured) binding.webView.onPause()
         if (batteryReceiverRegistered) {
             unregisterReceiver(batteryStatusReceiver)
             batteryReceiverRegistered = false
@@ -1521,6 +1523,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         presenceMotionDetector.reset()
         lastPresenceAnalysisAtMillis = 0L
         isAmbientDimmed = true
+        if (webViewConfigured) binding.webView.onPause()
+        applyPresenceWakePolicy()
         if (showScreensaver) {
             binding.ambientScreensaver.scene = settings.ambientScene
             binding.ambientScreensaver.photoClockMode =
@@ -1568,6 +1572,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         screensaverWeatherJob = null
         cancelAmbientBackgroundLoading()
         isAmbientDimmed = false
+        applyPresenceWakePolicy()
+        if (webViewConfigured) binding.webView.onResume()
         val screensaver = binding.ambientScreensaver
         val transition = ++ambientTransitionGeneration
         screensaver.animate().cancel()
@@ -1738,7 +1744,11 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             }
         }
 
-        val shouldRunCamera = settings.ambientModeEnabled && settings.presenceWakeEnabled
+        val shouldRunCamera = shouldRunPresenceCamera(
+            ambientModeEnabled = settings.ambientModeEnabled,
+            presenceWakeEnabled = settings.presenceWakeEnabled,
+            isAmbientDimmed = isAmbientDimmed
+        )
         if (!shouldRunCamera) {
             presenceWakePermissionAttempted = false
             presenceWakeRequested = false
@@ -1828,6 +1838,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             }
 
             runCatching {
+                provider.unbindAll()
                 provider.bindToLifecycle(this, selector, analysis)
             }.onSuccess {
                 presenceWakeCameraProvider = provider
@@ -1843,10 +1854,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
     private fun stopPresenceWakePipeline() {
         presenceWakeAnalysis?.clearAnalyzer()
-        presenceWakeAnalysis?.let { analysis ->
-            runCatching { presenceWakeCameraProvider?.unbind(analysis) }
-        }
+        runCatching { presenceWakeCameraProvider?.unbindAll() }
         presenceWakeAnalysis = null
+        presenceWakeCameraProvider = null
         presenceMotionDetector.reset()
         lastPresenceAnalysisAtMillis = 0L
     }
@@ -2534,35 +2544,32 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     }
 
     private fun analyzePresenceWakeFrame(imageProxy: ImageProxy) {
-        val settings = prefs.load()
-        if (!settings.presenceWakeEnabled || !settings.ambientModeEnabled) {
-            imageProxy.close()
-            return
-        }
+        try {
+            val settings = prefs.load()
+            if (!shouldRunPresenceCamera(
+                    ambientModeEnabled = settings.ambientModeEnabled,
+                    presenceWakeEnabled = settings.presenceWakeEnabled,
+                    isAmbientDimmed = isAmbientDimmed
+                )
+            ) return
 
-        val now = SystemClock.elapsedRealtime()
-        if (now - lastPresenceAnalysisAtMillis < PRESENCE_ANALYSIS_INTERVAL_MS) {
-            imageProxy.close()
-            return
-        }
-        lastPresenceAnalysisAtMillis = now
+            val now = SystemClock.elapsedRealtime()
+            if (now - lastPresenceAnalysisAtMillis < PRESENCE_ANALYSIS_INTERVAL_MS) return
+            lastPresenceAnalysisAtMillis = now
 
-        val luminance = imageProxy.planes.firstOrNull()
-        if (luminance == null) {
+            val luminance = imageProxy.planes.firstOrNull() ?: return
+            val motionDetected = presenceMotionDetector.detect(
+                luminance.buffer,
+                imageProxy.width,
+                imageProxy.height,
+                luminance.rowStride,
+                luminance.pixelStride
+            )
+            if (motionDetected) onPresenceDetected()
+        } catch (error: Exception) {
+            Log.w(TAG, "Motion wake frame analysis failed", error)
+        } finally {
             imageProxy.close()
-            return
-        }
-
-        val motionDetected = presenceMotionDetector.detect(
-            luminance.buffer,
-            imageProxy.width,
-            imageProxy.height,
-            luminance.rowStride,
-            luminance.pixelStride
-        )
-        imageProxy.close()
-        if (motionDetected) {
-            onPresenceDetected()
         }
     }
 
@@ -3053,3 +3060,9 @@ internal fun dashboardProfileForLoad(
     activeProfile: DashboardProfile?,
     scheduledProfile: DashboardProfile
 ): DashboardProfile? = if (scheduleEnabled) scheduledProfile else activeProfile
+
+internal fun shouldRunPresenceCamera(
+    ambientModeEnabled: Boolean,
+    presenceWakeEnabled: Boolean,
+    isAmbientDimmed: Boolean
+): Boolean = ambientModeEnabled && presenceWakeEnabled && isAmbientDimmed
