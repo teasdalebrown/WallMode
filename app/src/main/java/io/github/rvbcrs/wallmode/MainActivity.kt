@@ -926,7 +926,11 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                 }
 
                 override fun onPageFinished(view: WebView, url: String?) {
-                    if (!mainFrameLoadState.isVisible || !mainFrameLoadState.isCurrentUrl(url)) return
+                    // A fast return from Pulse Player can finish before Android sends
+                    // onPageCommitVisible. Apply the page-specific presentation as soon
+                    // as the current navigation finishes so HA never inherits Player's
+                    // unscaled presentation.
+                    if (!mainFrameLoadState.isCurrentUrl(url)) return
                     view.evaluateJavascript(
                         """
                         (() => {
