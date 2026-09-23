@@ -34,4 +34,14 @@ class PulseCommandGateTest {
             "playful conversation"
         ).forEach { assertFalse(it, PulseCommandGate.accepts(it)) }
     }
+
+    @Test
+    fun `fuzzy wake recovery is limited to harmless shorts`() {
+        listOf("time", "date", "status").forEach {
+            assertTrue(it, PulseCommandGate.acceptsFuzzyWake(it))
+        }
+        listOf("blackout", "play David Bowie", "turn off hall main", "question who was Churchill").forEach {
+            assertFalse(it, PulseCommandGate.acceptsFuzzyWake(it))
+        }
+    }
 }

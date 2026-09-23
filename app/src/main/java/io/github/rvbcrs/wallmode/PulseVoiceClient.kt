@@ -14,6 +14,7 @@ internal data class PulseVoiceResult(
     val response: String,
     val ok: Boolean,
     val ignored: Boolean = false,
+    val wakeVerified: Boolean = false,
     val error: String = ""
 )
 
@@ -25,12 +26,16 @@ internal class PulseVoiceClient(
     fun process(samples: ShortArray): Pair<PulseVoiceResult, ByteArray?> {
         val stt = postBytes("/audio?endpoint_id=${encode(endpointId)}", wavBytes(samples), "audio/wav")
         val rawTranscript = stt.optJSONObject("stt")?.optString("text").orEmpty().trim()
-        val transcript = repairObservedWakePrefix(rawTranscript)
-        if (transcript.isBlank()) {
-            return PulseVoiceResult("", "I didn't hear a command.", false, error = "No speech was recognised") to null
+        val wake = PulseWakePhrase.parse(rawTranscript)
+        if (!wake.verified || wake.command.isBlank()) {
+            return PulseVoiceResult(rawTranscript, "", true, ignored = true, wakeVerified = wake.verified) to null
+        }
+        val transcript = wake.command
+        if (!wake.strong && !PulseCommandGate.acceptsFuzzyWake(transcript)) {
+            return PulseVoiceResult(transcript, "", true, ignored = true, wakeVerified = true) to null
         }
         if (!PulseCommandGate.accepts(transcript)) {
-            return PulseVoiceResult(transcript, "", true, ignored = true) to null
+            return PulseVoiceResult(transcript, "", true, ignored = true, wakeVerified = true) to null
         }
         val route = postJson(
             "/transcript",
@@ -38,14 +43,14 @@ internal class PulseVoiceClient(
                 .put("room", room).put("endpoint_room", room)
         )
         val ignored = route.optString("status") == "ignored" || route.optString("mode") == "command_gate"
-        if (ignored) return PulseVoiceResult(transcript, "", true, ignored = true) to null
+        if (ignored) return PulseVoiceResult(transcript, "", true, ignored = true, wakeVerified = true) to null
         val response = spokenResponse(route)
         if (!route.optBoolean("ok", false)) {
             val error = route.optString("error", route.optString("reason", "Pulse could not complete that request"))
-            return PulseVoiceResult(transcript, response.ifBlank { error }, false, error = error) to null
+            return PulseVoiceResult(transcript, response.ifBlank { error }, false, wakeVerified = true, error = error) to null
         }
         val speech = if (response.isBlank()) null else getBytes("/tts?text=${encode(response)}")
-        return PulseVoiceResult(transcript, response, true) to speech
+        return PulseVoiceResult(transcript, response, true, wakeVerified = true) to speech
     }
 
     fun heartbeat() {
@@ -69,12 +74,6 @@ internal class PulseVoiceClient(
         // A bare success flag is not confirmation that the requested action
         // completed. Never invent spoken confirmation here.
         return ""
-    }
-
-    private fun repairObservedWakePrefix(value: String): String {
-        val compact = value.trim().replace(Regex("[.?!]+$"), "")
-        val prefix = Regex("^(?:hey\\s+pulse|haypoles|paypost|hey\\s+polls|hey\\s+holes)\\s+(.+)$", RegexOption.IGNORE_CASE)
-        return prefix.matchEntire(compact)?.groupValues?.get(1)?.trim() ?: value.trim()
     }
 
     private fun postJson(path: String, payload: JSONObject): JSONObject {

@@ -40,6 +40,14 @@ internal object PulseCommandGate {
             (withoutPlease.lowercase() in approvedShorts || matchesExplicitCommand(withoutPlease))
     }
 
+    fun acceptsFuzzyWake(value: String): Boolean {
+        val normalized = value.trim()
+            .replace(Regex("[.?!]+$"), "")
+            .replace(Regex("\\s+"), " ")
+            .lowercase()
+        return normalized in setOf("time", "date", "status")
+    }
+
     private fun matchesExplicitCommand(value: String): Boolean =
         explicitDomain.containsMatchIn(value) ||
             switchedAction.containsMatchIn(value) ||

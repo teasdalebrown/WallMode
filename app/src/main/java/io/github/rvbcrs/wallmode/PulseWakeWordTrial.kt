@@ -43,8 +43,11 @@ internal class PulseWakeWordTrial(
         private const val PROBABILITY_CUTOFF = 0.71f
         private const val SLIDING_WINDOW_SIZE = 3
         private const val COOLDOWN_INFERENCES = 34 // roughly two seconds
-        private const val MAX_CAPTURE_SAMPLES = SAMPLE_RATE * 7
-        private const val SPEECH_START_TIMEOUT_SAMPLES = SAMPLE_RATE * 3
+        private const val RESUME_COOLDOWN_INFERENCES = 8
+        private const val PRE_WAKE_SAMPLES = (SAMPLE_RATE * 1.5f).toInt()
+        private const val MAX_POST_WAKE_SAMPLES = (SAMPLE_RATE * 2.5f).toInt()
+        private const val MAX_CAPTURE_SAMPLES = PRE_WAKE_SAMPLES + MAX_POST_WAKE_SAMPLES
+        private const val SPEECH_START_TIMEOUT_SAMPLES = (SAMPLE_RATE * 1.5f).toInt()
         private const val SILENCE_END_SAMPLES = (SAMPLE_RATE * 1.15f).toInt()
         private const val SPEECH_LEVEL = 520
     }
@@ -61,6 +64,7 @@ internal class PulseWakeWordTrial(
     private var outputBuffer: ByteBuffer? = null
     private val pendingFrames = ArrayDeque<FloatArray>()
     private val recentScores = ArrayDeque<Float>()
+    private val preWakeSamples = ArrayDeque<Short>(PRE_WAKE_SAMPLES)
     private val running = AtomicBoolean(false)
     private var audioRecord: AudioRecord? = null
     private var noiseSuppressor: NoiseSuppressor? = null
@@ -68,11 +72,13 @@ internal class PulseWakeWordTrial(
     private var captureThread: Thread? = null
     private var cooldown = 0
     @Volatile private var capturingCommand = false
+    @Volatile private var detectionSuspended = false
     private val commandSamples = ArrayList<Short>(MAX_CAPTURE_SAMPLES)
     private var commandSpeechStarted = false
     private var commandSpeechChunks = 0
     private var commandSpeechVisible = false
     private var commandSilenceSamples = 0
+    private var commandPostWakeSamples = 0
 
     init {
         loadModel()
@@ -185,6 +191,10 @@ internal class PulseWakeWordTrial(
         val model = interpreter ?: return
         val input = inputBuffer ?: return
         val output = outputBuffer ?: return
+        chunk.forEach { sample ->
+            preWakeSamples.addLast(sample)
+            if (preWakeSamples.size > PRE_WAKE_SAMPLES) preWakeSamples.removeFirst()
+        }
         pendingFrames.addAll(frontend.processSamples(chunk))
         while (pendingFrames.size >= inputFrames) {
             input.rewind()
@@ -201,10 +211,12 @@ internal class PulseWakeWordTrial(
             output.rewind()
             val raw = output.get().toInt() and 0xff
             handleScore((raw - outputZeroPoint) * outputScale)
+            if (capturingCommand) return
         }
     }
 
     private fun handleScore(score: Float) {
+        if (detectionSuspended) return
         if (cooldown > 0) cooldown--
         recentScores.addLast(score)
         while (recentScores.size > SLIDING_WINDOW_SIZE) recentScores.removeFirst()
@@ -223,10 +235,12 @@ internal class PulseWakeWordTrial(
     private fun beginCommandCapture() {
         capturingCommand = true
         commandSamples.clear()
+        commandSamples.addAll(preWakeSamples)
         commandSpeechStarted = false
         commandSpeechChunks = 0
         commandSpeechVisible = false
         commandSilenceSamples = 0
+        commandPostWakeSamples = 0
     }
 
     @Synchronized
@@ -236,6 +250,7 @@ internal class PulseWakeWordTrial(
             if (commandSamples.size >= MAX_CAPTURE_SAMPLES) break
             commandSamples.add(sample)
         }
+        commandPostWakeSamples += chunk.size
         val meanAbsoluteLevel = chunk.sumOf { kotlin.math.abs(it.toInt()) }.toDouble() / chunk.size
         if (meanAbsoluteLevel >= SPEECH_LEVEL) {
             commandSpeechStarted = true
@@ -248,14 +263,15 @@ internal class PulseWakeWordTrial(
         } else if (commandSpeechStarted) {
             commandSilenceSamples += chunk.size
         }
-        val timedOutWaiting = !commandSpeechStarted && commandSamples.size >= SPEECH_START_TIMEOUT_SAMPLES
+        val timedOutWaiting = !commandSpeechStarted && commandPostWakeSamples >= SPEECH_START_TIMEOUT_SAMPLES
         val utteranceEnded = commandSpeechStarted && commandSilenceSamples >= SILENCE_END_SAMPLES
-        val captureFull = commandSamples.size >= MAX_CAPTURE_SAMPLES
+        val captureFull = commandPostWakeSamples >= MAX_POST_WAKE_SAMPLES
         if (timedOutWaiting || utteranceEnded || captureFull) finishCommandCapture(timedOutWaiting)
     }
 
     private fun finishCommandCapture(noSpeech: Boolean) {
         capturingCommand = false
+        detectionSuspended = true
         if (noSpeech) {
             commandSamples.clear()
             onEvent(PulseWakeTrialEvent.NoSpeech)
@@ -264,8 +280,22 @@ internal class PulseWakeWordTrial(
             commandSamples.clear()
             onEvent(PulseWakeTrialEvent.AudioCaptured(captured))
         }
-        resetDetector()
+        commandSpeechStarted = false
+        commandSpeechChunks = 0
+        commandSpeechVisible = false
+        commandSilenceSamples = 0
+        commandPostWakeSamples = 0
+        recentScores.clear()
         cooldown = COOLDOWN_INFERENCES
+    }
+
+    @Synchronized
+    fun resumeDetection(): Boolean {
+        if (!running.get()) return false
+        detectionSuspended = false
+        recentScores.clear()
+        cooldown = RESUME_COOLDOWN_INFERENCES
+        return true
     }
 
     @Synchronized
@@ -275,12 +305,15 @@ internal class PulseWakeWordTrial(
         pendingFrames.clear()
         recentScores.clear()
         cooldown = 0
+        detectionSuspended = false
         capturingCommand = false
         commandSamples.clear()
         commandSpeechStarted = false
         commandSpeechChunks = 0
         commandSpeechVisible = false
         commandSilenceSamples = 0
+        commandPostWakeSamples = 0
+        preWakeSamples.clear()
     }
 
     fun stop() {
@@ -305,6 +338,7 @@ internal class PulseWakeWordTrial(
         commandSpeechChunks = 0
         commandSpeechVisible = false
         commandSilenceSamples = 0
+        commandPostWakeSamples = 0
         resetDetector()
     }
 
