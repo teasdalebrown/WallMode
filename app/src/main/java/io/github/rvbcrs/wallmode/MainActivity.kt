@@ -149,6 +149,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private var voiceHeartbeatJob: Job? = null
     private var voiceMediaPlayer: MediaPlayer? = null
     private var batteryReceiverRegistered = false
+    private var pulsePlayerMode = false
+    private var pulsePlayerReturnRunnable: Runnable? = null
 
     private val batteryStatusReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -298,6 +300,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         WebView.setWebContentsDebuggingEnabled(false)
 
         setupAdminGesture()
+        setupPulsePlayerControl()
         registerNetworkMonitoring()
         applyWindowSettings()
         maybePromptStartupCameraPermission()
@@ -310,7 +313,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                // Back is intentionally ignored in kiosk mode.
+                if (pulsePlayerMode) returnToPulseHome()
+                // Back is intentionally ignored in dashboard kiosk mode.
             }
         })
     }
@@ -389,6 +393,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     override fun dispatchTouchEvent(ev: MotionEvent?): Boolean {
         if (ev?.actionMasked == MotionEvent.ACTION_DOWN) {
             bannerTouchGesture = bannerOverlay.containsTouch(ev.rawX, ev.rawY)
+            if (pulsePlayerMode) schedulePulsePlayerReturn()
         }
         if (bannerTouchGesture) {
             // Banner controls do not wake or reset the screensaver underneath.
@@ -416,6 +421,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         super.onDestroy()
         voiceTrialOverlayHide?.let(mainHandler::removeCallbacks)
         voiceTrialOverlayHide = null
+        pulsePlayerReturnRunnable?.let(mainHandler::removeCallbacks)
+        pulsePlayerReturnRunnable = null
         pulseWakeTrial?.close()
         pulseWakeTrial = null
         releaseVoiceMediaPlayer()
@@ -662,6 +669,41 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         }
     }
 
+    private fun setupPulsePlayerControl() {
+        binding.pulsePlayerControl.setOnClickListener {
+            if (pulsePlayerMode) returnToPulseHome() else openPulsePlayer()
+        }
+    }
+
+    private fun openPulsePlayer() {
+        if (activeEventTakeover != null || pulsePlayerMode) return
+        ambientDimRunnable?.let(mainHandler::removeCallbacks)
+        ambientDimRunnable = null
+        leaveAmbientMode()
+        pulsePlayerMode = true
+        binding.pulsePlayerControlLabel.setText(R.string.pulse_player_return)
+        binding.pulsePlayerControl.contentDescription = getString(R.string.pulse_player_return)
+        loadWebUrl(PULSE_PLAYER_URL, prefs.load(), rememberAsDashboard = false)
+        schedulePulsePlayerReturn()
+    }
+
+    private fun returnToPulseHome() {
+        if (!pulsePlayerMode) return
+        pulsePlayerReturnRunnable?.let(mainHandler::removeCallbacks)
+        pulsePlayerReturnRunnable = null
+        pulsePlayerMode = false
+        binding.pulsePlayerControlLabel.setText(R.string.pulse_player_open)
+        binding.pulsePlayerControl.contentDescription = getString(R.string.pulse_player_open)
+        loadDashboard()
+        resetAmbientTimer()
+    }
+
+    private fun schedulePulsePlayerReturn() {
+        pulsePlayerReturnRunnable?.let(mainHandler::removeCallbacks)
+        pulsePlayerReturnRunnable = Runnable { returnToPulseHome() }
+            .also { mainHandler.postDelayed(it, PULSE_PLAYER_IDLE_RETURN_MS) }
+    }
+
     private fun requestAdminAccess() {
         val settings = prefs.load()
         val mustPrompt = prefs.hasAdminPassword() &&
@@ -889,9 +931,24 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                         """
                         (() => {
                           const root = document.documentElement;
-                          root.style.zoom = '0.8';
-                          root.style.width = '125%';
-                          root.style.height = '125%';
+                          const isHomeAssistant = location.hostname === 'homeassistant.local' ||
+                            location.hostname === '192.168.4.212';
+                          root.style.zoom = isHomeAssistant ? '0.8' : '1';
+                          root.style.width = isHomeAssistant ? '125%' : '100%';
+                          root.style.height = isHomeAssistant ? '125%' : '100%';
+
+                          // Pulse Player announces a confirmed playback selection with
+                          // this event. Return to the dashboard only after that real
+                          // selection, not merely after opening or browsing the player.
+                          if (
+                            location.hostname === '192.168.4.211' &&
+                            !window.__wallModePlaybackReturnBound
+                          ) {
+                            window.__wallModePlaybackReturnBound = true;
+                            window.addEventListener('pulse-player-playback-started', () => {
+                              location.href = 'wallmode://player/complete';
+                            });
+                          }
 
                           // The wall-tablet view benefits from a larger title, but the
                           // shared Home Assistant dashboard must remain unchanged.
@@ -923,7 +980,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                         """.trimIndent(),
                         null,
                     )
-                    if (activeEventTakeover == null && !url.isNullOrBlank()) {
+                    if (activeEventTakeover == null && !pulsePlayerMode && !url.isNullOrBlank()) {
                         loadedDashboardUrl = url
                         prefs.recordLastUrl(url)
                     }
@@ -938,7 +995,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                     pendingRetry = null
                     binding.dashboardFallback.visibility = View.GONE
                     binding.recoveryOverlay.visibility = View.GONE
-                    if (activeEventTakeover == null && !url.isNullOrBlank()) {
+                    if (activeEventTakeover == null && !pulsePlayerMode && !url.isNullOrBlank()) {
                         loadedDashboardUrl = url
                         prefs.recordLastUrl(url)
                     }
@@ -953,8 +1010,13 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                     if (!request.isForMainFrame) {
                         return false
                     }
-                    return if (isAllowedTopLevelUrl(request.url?.toString())) {
-                        beginMainFrameLoad(request.url?.toString())
+                    val requestedUrl = request.url?.toString()
+                    if (isPulsePlayerReturnUrl(requestedUrl)) {
+                        returnToPulseHome()
+                        return true
+                    }
+                    return if (isAllowedTopLevelUrl(requestedUrl)) {
+                        beginMainFrameLoad(requestedUrl)
                         false
                     } else {
                         Toast.makeText(
@@ -1059,6 +1121,13 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private fun isAllowedTopLevelUrl(url: String?): Boolean {
         val scheme = parseUri(url)?.scheme?.lowercase() ?: return false
         return scheme == "http" || scheme == "https"
+    }
+
+    private fun isPulsePlayerReturnUrl(url: String?): Boolean {
+        val uri = parseUri(url) ?: return false
+        return uri.scheme.equals("wallmode", ignoreCase = true) &&
+            uri.host.equals("player", ignoreCase = true) &&
+            uri.path in setOf("/complete", "/return")
     }
 
     private fun isTrustedOrigin(candidateUrl: String?): Boolean {
@@ -1334,7 +1403,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         ambientDimRunnable?.let(mainHandler::removeCallbacks)
         ambientDimRunnable = null
         if (isAmbientDimmed) leaveAmbientMode()
-        if (activeEventTakeover != null) return
+        if (activeEventTakeover != null || pulsePlayerMode) return
         val settings = prefs.load()
         if (!settings.ambientModeEnabled) {
             return
@@ -1345,6 +1414,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     }
 
     private fun enterAmbientMode(settings: KioskSettings, showScreensaver: Boolean) {
+        if (pulsePlayerMode) return
+        binding.pulsePlayerControl.visibility = View.GONE
         val transition = ++ambientTransitionGeneration
         binding.ambientScreensaver.animate().cancel()
         applyAmbientBrightness(settings)
@@ -1430,6 +1501,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             setWindowBrightness(WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE)
         }
         if (wasAmbient) publishMqttState()
+        binding.pulsePlayerControl.visibility = View.VISIBLE
     }
 
     private fun startAmbientBackground(settings: KioskSettings) {
@@ -2139,6 +2211,11 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     }
 
     private fun reloadCurrentTarget() {
+        if (pulsePlayerMode) {
+            loadWebUrl(PULSE_PLAYER_URL, prefs.load(), rememberAsDashboard = false)
+            schedulePulsePlayerReturn()
+            return
+        }
         val takeover = activeEventTakeover
         if (takeover == null) {
             loadDashboard()
@@ -2687,6 +2764,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         private const val SCREENSAVER_WEATHER_REFRESH_MS = 30 * 60_000L
         private const val MQTT_STATE_INTERVAL_MS = 60_000L
         private const val MAIN_FRAME_LOAD_TIMEOUT_MS = 30_000L
+        private const val PULSE_PLAYER_IDLE_RETURN_MS = 90_000L
+        private const val PULSE_PLAYER_URL = "http://192.168.4.211:3002/?wallmode=1"
         private const val PRESENCE_ANALYSIS_INTERVAL_MS = 250L
         private const val PREVIEW_MAX_DIMENSION_PX = 720
         private const val PREVIEW_CAPTURE_TIMEOUT_SECONDS = 3L

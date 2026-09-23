@@ -268,6 +268,33 @@
     </FrameLayout>
 
     <com.google.android.material.card.MaterialCardView
+        android:id="@+id/pulse_player_control"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|start"
+        android:layout_margin="12dp"
+        android:clickable="true"
+        android:focusable="true"
+        android:foreground="?attr/selectableItemBackground"
+        app:cardBackgroundColor="#E6121D29"
+        app:cardCornerRadius="18dp"
+        app:cardElevation="4dp"
+        app:strokeColor="@color/brand_primary"
+        app:strokeWidth="1dp">
+
+        <TextView
+            android:id="@+id/pulse_player_control_label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="14dp"
+            android:paddingVertical="8dp"
+            android:text="@string/pulse_player_open"
+            android:textColor="@color/white"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+    </com.google.android.material.card.MaterialCardView>
+
+    <com.google.android.material.card.MaterialCardView
         android:id="@+id/battery_status_card"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
