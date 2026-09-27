@@ -12,7 +12,12 @@ class BootReceiver : BroadcastReceiver() {
         }
 
         val settings = KioskPreferences(context).load()
-        if (!settings.autoStartOnBoot) {
+        if (!shouldStartOnBoot(
+                autoStartOnBoot = settings.autoStartOnBoot,
+                resolvedHomePackage = resolveDefaultHomePackage(context),
+                ownPackage = context.packageName
+            )
+        ) {
             return
         }
 
@@ -21,5 +26,18 @@ class BootReceiver : BroadcastReceiver() {
             addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }
         context.startActivity(launchIntent)
+    }
+
+    private fun resolveDefaultHomePackage(context: Context): String? {
+        val homeIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+        return context.packageManager.resolveActivity(homeIntent, 0)?.activityInfo?.packageName
+    }
+
+    companion object {
+        internal fun shouldStartOnBoot(
+            autoStartOnBoot: Boolean,
+            resolvedHomePackage: String?,
+            ownPackage: String
+        ): Boolean = autoStartOnBoot && resolvedHomePackage != ownPackage
     }
 }
