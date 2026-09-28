@@ -40,15 +40,15 @@ internal class PulseWakeWordTrial(
         private const val MODEL = "hey_pulse.tflite"
         private const val SAMPLE_RATE = 16_000
         private const val CHUNK_SAMPLES = 1_280 // 80 ms
-        private const val PROBABILITY_CUTOFF = 0.71f
+        private const val PROBABILITY_CUTOFF = 0.80f
         private const val SLIDING_WINDOW_SIZE = 3
         private const val COOLDOWN_INFERENCES = 34 // roughly two seconds
         private const val RESUME_COOLDOWN_INFERENCES = 8
         private const val PRE_WAKE_SAMPLES = (SAMPLE_RATE * 1.5f).toInt()
-        private const val MAX_POST_WAKE_SAMPLES = (SAMPLE_RATE * 2.5f).toInt()
+        private const val MAX_POST_WAKE_SAMPLES = (SAMPLE_RATE * 7f).toInt()
         private const val MAX_CAPTURE_SAMPLES = PRE_WAKE_SAMPLES + MAX_POST_WAKE_SAMPLES
         private const val SPEECH_START_TIMEOUT_SAMPLES = (SAMPLE_RATE * 1.5f).toInt()
-        private const val SILENCE_END_SAMPLES = (SAMPLE_RATE * 1.15f).toInt()
+        private const val SILENCE_END_SAMPLES = (SAMPLE_RATE * 2f).toInt()
         private const val SPEECH_LEVEL = 520
     }
 
@@ -232,10 +232,11 @@ internal class PulseWakeWordTrial(
     }
 
     @Synchronized
-    private fun beginCommandCapture() {
+    private fun beginCommandCapture(includePreWake: Boolean = true) {
         capturingCommand = true
+        detectionSuspended = true
         commandSamples.clear()
-        commandSamples.addAll(preWakeSamples)
+        if (includePreWake) commandSamples.addAll(preWakeSamples)
         commandSpeechStarted = false
         commandSpeechChunks = 0
         commandSpeechVisible = false
@@ -295,6 +296,13 @@ internal class PulseWakeWordTrial(
         detectionSuspended = false
         recentScores.clear()
         cooldown = RESUME_COOLDOWN_INFERENCES
+        return true
+    }
+
+    @Synchronized
+    fun captureCommandWithoutWake(): Boolean {
+        if (!running.get() || capturingCommand) return false
+        beginCommandCapture(includePreWake = false)
         return true
     }
 

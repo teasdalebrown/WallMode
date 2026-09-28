@@ -85,4 +85,61 @@ class PulseWakePhraseTest {
         assertTrue(parsed.verified)
         assertEquals("", parsed.command)
     }
+
+    @Test
+    fun `confirmed local wake strips observed STT wake renderings before shared routing`() {
+        assertEquals(
+            "question tell me about Winston Churchill",
+            PulseWakePhrase.commandAfterDetectedWake(
+                "Hey Post, question tell me about Winston Churchill."
+            )
+        )
+        assertEquals(
+            "question tell me about Winston Churchill",
+            PulseWakePhrase.commandAfterDetectedWake(
+                "Hey folks, question tell me about Winston Churchill."
+            )
+        )
+        assertEquals(
+            "question tell me about Winston Churchill",
+            PulseWakePhrase.commandAfterDetectedWake(
+                "They both question tell me about Winston Churchill."
+            )
+        )
+        assertEquals(
+            "question tell me about Winston Churchill",
+            PulseWakePhrase.commandAfterDetectedWake(
+                "Hey Pauls, question tell me about Winston Churchill."
+            )
+        )
+        assertEquals(
+            "Question. Tell me about Winston Churchill",
+            PulseWakePhrase.commandAfterDetectedWake(
+                "Take false. Question. Tell me about Winston Churchill."
+            )
+        )
+        assertEquals(
+            "Question. Tell me about Winston Churchill",
+            PulseWakePhrase.commandAfterDetectedWake(
+                "Play false. Question. Tell me about Winston Churchill."
+            )
+        )
+        assertEquals("News", PulseWakePhrase.commandAfterDetectedWake("Hank Foles, News."))
+        assertEquals(
+            "scene, turn on office main",
+            PulseWakePhrase.commandAfterDetectedWake("8 bolts, scene, turn on office main.")
+        )
+        assertEquals(
+            "play 1960s rock in the office",
+            PulseWakePhrase.commandAfterDetectedWake("Hey, Pulse. Late 1960s rock in the office.")
+        )
+    }
+
+    @Test
+    fun `confirmed local wake leaves command acceptance to Pulse Core`() {
+        assertEquals(
+            "ordinary phone conversation",
+            PulseWakePhrase.commandAfterDetectedWake("ordinary phone conversation")
+        )
+    }
 }

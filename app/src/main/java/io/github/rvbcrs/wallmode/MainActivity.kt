@@ -149,6 +149,10 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private var voiceRequestJob: Job? = null
     private var voiceHeartbeatJob: Job? = null
     private var voiceMediaPlayer: MediaPlayer? = null
+    private val voiceSpeechQueue = ArrayDeque<ByteArray>()
+    private var voiceSpeechStreamFinished = false
+    private var voiceSpeechChunksPlayed = 0
+    private var voiceContinueListeningAfterSpeech = false
     private var batteryReceiverRegistered = false
     private var pulsePlayerMode = false
     private var pulsePlayerReturnRunnable: Runnable? = null
@@ -521,6 +525,10 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                         "wake_detected",
                         "probability=${event.probability}"
                     )
+                    // Voice wake is also an intentional display wake. Restore
+                    // the already-loaded dashboard beneath the native Voice
+                    // overlay so completion never drops back to the screensaver.
+                    prepareDashboardBehindVoice()
                     showVoiceState(getString(R.string.voice_listening))
                 }
                 PulseWakeTrialEvent.SpeechStarted -> pulseVoiceTrace.record("speech_started")
@@ -578,17 +586,31 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
     private fun processPulseVoiceAudio(samples: ShortArray) {
         showVoiceState(getString(R.string.voice_thinking))
+        releaseVoiceMediaPlayer()
+        voiceSpeechQueue.clear()
+        voiceSpeechStreamFinished = false
+        voiceSpeechChunksPlayed = 0
+        voiceContinueListeningAfterSpeech = false
         val requestStarted = SystemClock.elapsedRealtime()
         pulseVoiceTrace.record("request_started")
         voiceRequestJob?.cancel()
         voiceRequestJob = scope.launch {
-            val outcome = withContext(Dispatchers.IO) { runCatching { pulseVoiceClient.process(samples) } }
-            outcome.onSuccess { (result, speech) ->
+            val outcome = withContext(Dispatchers.IO) {
+                runCatching {
+                    pulseVoiceClient.process(samples) { wav ->
+                        mainHandler.post { enqueuePulseSpeech(wav) }
+                    }
+                }
+            }
+            outcome.onSuccess { result ->
+                voiceSpeechStreamFinished = true
+                voiceContinueListeningAfterSpeech = result.continueListening
                 pulseVoiceTrace.record(
                     "request_finished",
                     "elapsed_ms=${SystemClock.elapsedRealtime() - requestStarted} " +
                         "verified=${result.wakeVerified} ignored=${result.ignored} ok=${result.ok} " +
-                        "transcript=${result.transcript} response=${result.response} speech_bytes=${speech?.size ?: 0}"
+                        "transcript=${result.transcript} response=${result.response} " +
+                        "speech_chunks_played=$voiceSpeechChunksPlayed queued=${voiceSpeechQueue.size}"
                 )
                 if (result.ignored) {
                     hideVoiceOverlay()
@@ -599,11 +621,11 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                 showVoiceState(
                     heading,
                     transcript = result.transcript,
-                    response = result.response,
+                    response = "",
                     failed = !result.ok,
-                    autoHideMs = if (speech == null) 5_000L else 0L
+                    autoHideMs = if (voiceMediaPlayer == null && voiceSpeechQueue.isEmpty()) 5_000L else 0L
                 )
-                if (speech != null) playPulseSpeech(speech) else resumeVoiceAfterDelay()
+                if (voiceMediaPlayer == null && voiceSpeechQueue.isEmpty()) finishPulseSpeech()
             }.onFailure { error ->
                 pulseVoiceTrace.record(
                     "request_failed",
@@ -622,18 +644,51 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         }
     }
 
-    private fun playPulseSpeech(wav: ByteArray) {
-        pulseVoiceTrace.record("speech_playback_started", "bytes=${wav.size}")
+    private fun enqueuePulseSpeech(wav: ByteArray) {
+        voiceSpeechQueue.addLast(wav)
+        if (voiceMediaPlayer == null) playNextPulseSpeechChunk()
+    }
+
+    private fun finishPulseSpeech() {
+        if (!voiceSpeechStreamFinished || voiceMediaPlayer != null || voiceSpeechQueue.isNotEmpty()) return
+        pulseVoiceTrace.record("speech_playback_finished", "chunks=$voiceSpeechChunksPlayed")
+        if (voiceContinueListeningAfterSpeech) {
+            voiceContinueListeningAfterSpeech = false
+            hideVoiceOverlay()
+            startConversationCaptureAfterDelay(700L)
+            return
+        }
+        if (voiceSpeechChunksPlayed > 0) {
+            hideVoiceOverlay()
+            resumeVoiceAfterDelay(1_200L)
+        } else {
+            resumeVoiceAfterDelay()
+        }
+    }
+
+    private fun playNextPulseSpeechChunk() {
+        val wav = voiceSpeechQueue.removeFirstOrNull() ?: run {
+            finishPulseSpeech()
+            return
+        }
+        val chunkNumber = voiceSpeechChunksPlayed + 1
+        pulseVoiceTrace.record(
+            if (voiceSpeechChunksPlayed == 0) "speech_playback_started" else "speech_playback_chunk_started",
+            "chunk=$chunkNumber bytes=${wav.size}"
+        )
         releaseVoiceMediaPlayer()
         val file = File.createTempFile("pulse-response-", ".wav", cacheDir).apply { writeBytes(wav) }
         voiceMediaPlayer = MediaPlayer().apply {
             setDataSource(file.absolutePath)
             setOnCompletionListener {
-                pulseVoiceTrace.record("speech_playback_finished")
+                pulseVoiceTrace.record(
+                    "speech_playback_chunk_finished",
+                    "chunk=$chunkNumber"
+                )
+                voiceSpeechChunksPlayed += 1
                 file.delete()
                 releaseVoiceMediaPlayer()
-                hideVoiceOverlay()
-                resumeVoiceAfterDelay(1_200L)
+                playNextPulseSpeechChunk()
             }
             setOnErrorListener { _, _, _ ->
                 file.delete()
@@ -652,11 +707,14 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         voiceRequestJob = null
         pulseWakeTrial?.cancelCommandCapture()
         releaseVoiceMediaPlayer()
+        voiceSpeechQueue.clear()
+        voiceSpeechStreamFinished = true
         hideVoiceOverlay()
         resumeVoiceAfterDelay()
     }
 
     private fun resumeVoiceAfterDelay(delayMs: Long = 2_500L) {
+        resetAmbientTimer()
         pulseVoiceTrace.record("rearm_scheduled", "delay_ms=$delayMs")
         mainHandler.postDelayed({
             if (!isFinishing && !isDestroyed && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
@@ -664,6 +722,29 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                 if (pulseWakeTrial?.resumeDetection() != true) startVoiceTrialIfPermitted()
             }
         }, delayMs)
+    }
+
+    private fun startConversationCaptureAfterDelay(delayMs: Long) {
+        pulseVoiceTrace.record("conversation_capture_scheduled", "delay_ms=$delayMs")
+        mainHandler.postDelayed({
+            if (!isFinishing && !isDestroyed && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                prepareDashboardBehindVoice()
+                showVoiceState(getString(R.string.voice_listening))
+                pulseVoiceTrace.record("conversation_capture_started")
+                if (pulseWakeTrial?.captureCommandWithoutWake() != true) {
+                    pulseVoiceTrace.record("conversation_capture_failed")
+                    hideVoiceOverlay()
+                    resumeVoiceAfterDelay()
+                }
+            }
+        }, delayMs)
+    }
+
+    private fun prepareDashboardBehindVoice() {
+        if (pulsePlayerMode) returnToPulseHome()
+        ambientDimRunnable?.let(mainHandler::removeCallbacks)
+        ambientDimRunnable = null
+        if (isAmbientDimmed) leaveAmbientMode()
     }
 
     private fun releaseVoiceMediaPlayer() {
@@ -1314,7 +1395,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         if (settings.lockTaskMode) {
             if (isDeviceOwner) {
                 runCatching {
-                    dpm.setLockTaskPackages(admin, arrayOf(packageName))
+                    dpm.setLockTaskPackages(admin, permittedKioskPackages())
                 }.onFailure { error ->
                     prefs.recordWatchdogState("lock-task policy failed: ${error.message}")
                 }
@@ -1330,6 +1411,13 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             attemptStopLockTaskIfRunning()
         }
     }
+
+    private fun permittedKioskPackages(): Array<String> = buildList {
+        add(packageName)
+        if (runCatching { packageManager.getPackageInfo(REOLINK_PACKAGE, 0) }.isSuccess) {
+            add(REOLINK_PACKAGE)
+        }
+    }.toTypedArray()
 
     private fun attemptStopLockTaskIfRunning() {
         if (!isLockTaskModeRunning()) {
@@ -2872,6 +2960,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         private const val PULSE_PLAYER_IDLE_RETURN_MS = 90_000L
         private const val PULSE_PLAYER_SUCCESS_RETURN_DELAY_MS = 10_000L
         private const val PULSE_PLAYER_URL = "http://192.168.4.211:3002/?wallmode=1"
+        private const val REOLINK_PACKAGE = "com.mcu.reolink"
         private const val PRESENCE_ANALYSIS_INTERVAL_MS = 250L
         private const val PREVIEW_MAX_DIMENSION_PX = 720
         private const val PREVIEW_CAPTURE_TIMEOUT_SECONDS = 3L

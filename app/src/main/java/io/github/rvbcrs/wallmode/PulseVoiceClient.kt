@@ -15,7 +15,8 @@ internal data class PulseVoiceResult(
     val ok: Boolean,
     val ignored: Boolean = false,
     val wakeVerified: Boolean = false,
-    val error: String = ""
+    val error: String = "",
+    val continueListening: Boolean = false
 )
 
 internal class PulseVoiceClient(
@@ -23,34 +24,101 @@ internal class PulseVoiceClient(
     private val room: String = "Hall/Kitchen",
     private val bridgeUrl: String = "http://192.168.4.211:3065/api/bridge"
 ) {
-    fun process(samples: ShortArray): Pair<PulseVoiceResult, ByteArray?> {
+    private var chatSessionUntilMillis = 0L
+
+    fun process(samples: ShortArray, onSpeechChunk: (ByteArray) -> Unit): PulseVoiceResult {
         val stt = postBytes("/audio?endpoint_id=${encode(endpointId)}", wavBytes(samples), "audio/wav")
         val rawTranscript = stt.optJSONObject("stt")?.optString("text").orEmpty().trim()
-        val wake = PulseWakePhrase.parse(rawTranscript)
-        if (!wake.verified || wake.command.isBlank()) {
-            return PulseVoiceResult(rawTranscript, "", true, ignored = true, wakeVerified = wake.verified) to null
+        val transcript = PulseWakePhrase.commandAfterDetectedWake(rawTranscript)
+        if (transcript.isBlank()) {
+            return PulseVoiceResult(transcript, "", true, ignored = true, wakeVerified = true)
         }
-        val transcript = wake.command
-        if (!wake.strong && !PulseCommandGate.acceptsFuzzyWake(transcript)) {
-            return PulseVoiceResult(transcript, "", true, ignored = true, wakeVerified = true) to null
+        // The on-device model has already verified the wake event. Pulse Core
+        // owns the same command gate and response routes used by the physical
+        // endpoints; do not maintain a second tablet-only routing policy here.
+        val now = System.currentTimeMillis()
+        val command = transcript.trim().lowercase()
+        if (command == "chat") {
+            chatSessionUntilMillis = now + CHAT_SESSION_MILLIS
+            val response = "Chat is open. What would you like to talk about?"
+            onSpeechChunk(getBytes("/tts?text=${encode(response)}"))
+            return PulseVoiceResult(transcript, response, true, wakeVerified = true, continueListening = true)
         }
-        if (!PulseCommandGate.accepts(transcript)) {
-            return PulseVoiceResult(transcript, "", true, ignored = true, wakeVerified = true) to null
+        if (now < chatSessionUntilMillis && command in CHAT_CLOSE_COMMANDS) {
+            chatSessionUntilMillis = 0L
+            val response = "Chat closed."
+            onSpeechChunk(getBytes("/tts?text=${encode(response)}"))
+            return PulseVoiceResult(transcript, response, true, wakeVerified = true)
         }
-        val route = postJson(
-            "/transcript",
-            JSONObject().put("endpoint_id", endpointId).put("transcript", transcript)
-                .put("room", room).put("endpoint_room", room)
-        )
+        val chatFollowup = now < chatSessionUntilMillis && !PulseCommandGate.accepts(transcript)
+        val routedTranscript = if (chatFollowup) "chat $transcript" else transcript
+        if (chatFollowup) chatSessionUntilMillis = now + CHAT_SESSION_MILLIS
+        val payload = JSONObject().put("endpoint_id", endpointId).put("transcript", routedTranscript)
+            .put("room", room).put("endpoint_room", room)
+        if (pulseVoiceRoutePath(routedTranscript) == "/question-stream") {
+            val result = processQuestionStream(routedTranscript, payload, onSpeechChunk)
+            val continueListening = chatFollowup || routedTranscript.trim().lowercase().startsWith("chat ")
+            if (continueListening) chatSessionUntilMillis = System.currentTimeMillis() + CHAT_SESSION_MILLIS
+            return result.copy(transcript = transcript, continueListening = continueListening)
+        }
+        val route = postJson("/transcript", payload)
         val ignored = route.optString("status") == "ignored" || route.optString("mode") == "command_gate"
-        if (ignored) return PulseVoiceResult(transcript, "", true, ignored = true, wakeVerified = true) to null
+        if (ignored) return PulseVoiceResult(transcript, "", true, ignored = true, wakeVerified = true)
         val response = spokenResponse(route)
         if (!route.optBoolean("ok", false)) {
             val error = route.optString("error", route.optString("reason", "Pulse could not complete that request"))
-            return PulseVoiceResult(transcript, response.ifBlank { error }, false, wakeVerified = true, error = error) to null
+            return PulseVoiceResult(transcript, response.ifBlank { error }, false, wakeVerified = true, error = error)
         }
-        val speech = if (response.isBlank()) null else getBytes("/tts?text=${encode(response)}")
-        return PulseVoiceResult(transcript, response, true, wakeVerified = true) to speech
+        if (response.isNotBlank()) onSpeechChunk(getBytes("/tts?text=${encode(response)}"))
+        return PulseVoiceResult(
+            transcript,
+            response,
+            true,
+            wakeVerified = true,
+            continueListening = route.optBoolean("listen_again", false)
+        )
+    }
+
+    private fun processQuestionStream(
+        transcript: String,
+        payload: JSONObject,
+        onSpeechChunk: (ByteArray) -> Unit
+    ): PulseVoiceResult {
+        val connection = URL("$bridgeUrl/question-stream").openConnection() as HttpURLConnection
+        var answer = ""
+        try {
+            connection.requestMethod = "POST"
+            connection.connectTimeout = 5_000
+            connection.readTimeout = 120_000
+            connection.doOutput = true
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.setRequestProperty("Accept", "application/x-ndjson")
+            val body = payload.toString().toByteArray()
+            connection.setFixedLengthStreamingMode(body.size)
+            connection.outputStream.use { it.write(body) }
+            val code = connection.responseCode
+            if (code !in 200..299) throw IllegalStateException("Pulse returned HTTP $code")
+            connection.inputStream.bufferedReader().useLines { lines ->
+                lines.forEach { line ->
+                    if (line.isBlank()) return@forEach
+                    val event = JSONObject(line)
+                    when (event.optString("type")) {
+                        "chunk" -> {
+                            val chunk = event.optString("answer_chunk").trim()
+                            if (chunk.isNotBlank()) {
+                                answer = listOf(answer, chunk).filter(String::isNotBlank).joinToString(" ")
+                                onSpeechChunk(getBytes("/tts?text=${encode(chunk)}"))
+                            }
+                        }
+                        "done" -> answer = event.optString("answer", answer).trim()
+                        "error" -> throw IllegalStateException(event.optString("error", "Question stream failed"))
+                    }
+                }
+            }
+            return PulseVoiceResult(transcript, answer, true, wakeVerified = true)
+        } finally {
+            connection.disconnect()
+        }
     }
 
     fun heartbeat() {
@@ -67,6 +135,7 @@ internal class PulseVoiceClient(
 
     private fun spokenResponse(route: JSONObject): String {
         route.optString("answer").trim().takeIf { it.isNotBlank() }?.let { return it }
+        route.optString("acknowledgement").trim().takeIf { it.isNotBlank() }?.let { return it }
         route.optString("confirmation").trim().takeIf { it.isNotBlank() }?.let { return it }
         val result = route.optJSONObject("result")
         result?.optString("confirmation")?.trim()?.takeIf { it.isNotBlank() }?.let { return it }
@@ -132,4 +201,29 @@ internal class PulseVoiceClient(
         ascii("data"); int32(pcm.array().size); output.write(pcm.array())
         return output.toByteArray()
     }
+
+}
+
+private const val CHAT_SESSION_MILLIS = 5 * 60 * 1000L
+private val CHAT_CLOSE_COMMANDS = setOf("stop", "end chat", "close chat", "exit chat", "stop chat", "goodbye")
+
+private val QUESTION_STREAM_DOMAIN = Regex(
+    "^\\s*(?:question|chat|news|lookup|look\\s+up|search|research|verify|reason|think|status)\\b",
+    RegexOption.IGNORE_CASE
+)
+
+internal fun pulseVoiceRoutePath(transcript: String): String =
+    if (pulseIdentityRequest(transcript)) "/transcript"
+    else if (QUESTION_STREAM_DOMAIN.containsMatchIn(transcript)) "/question-stream"
+    else "/transcript"
+
+private fun pulseIdentityRequest(transcript: String): Boolean {
+    var clean = transcript.trim().lowercase().replace(Regex("[^a-z0-9]+"), " ").trim()
+    if (clean.startsWith("question ")) clean = clean.removePrefix("question ").trim()
+    if (clean.startsWith("and ")) clean = clean.removePrefix("and ").trim()
+    return clean in setOf(
+        "who are you", "what is your name", "whats your name", "your name",
+        "introduce yourself", "introduce your self", "please introduce yourself",
+        "please introduce your self"
+    )
 }
