@@ -150,8 +150,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private var voiceRequestCancellation: PulseVoiceCancellation? = null
     private var voiceRequestGeneration = 0L
     private var voiceHeartbeatJob: Job? = null
-    private var voiceMediaPlayer: MediaPlayer? = null
-    private val voiceSpeechQueue = ArrayDeque<ByteArray>()
+    private var voiceMediaPlayer: PulseStreamPlayer? = null
+    private var voicePendingSpeechEnqueues = java.util.concurrent.atomic.AtomicInteger(0)
+    private val voiceSpeechQueue = ArrayDeque<PulseSpeechAudio>()
     private var voiceSpeechStreamFinished = false
     private var voiceSpeechChunksPlayed = 0
     private var voiceContinueListeningAfterSpeech = false
@@ -324,6 +325,40 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                 // Back is intentionally ignored in dashboard kiosk mode.
             }
         })
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // Internal USB-only evidence replay in debug builds. No path or command
+        // can be supplied by the caller; release builds ignore this completely.
+        if ((applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) == 0) return
+        if (intent.getBooleanExtra("pulse_debug_cancel", false)) {
+            cancelPulseVoiceInteraction()
+            pulseVoiceTrace.record("debug_cancel")
+            return
+        }
+        if (!intent.getBooleanExtra("pulse_debug_replay", false)) return
+        val evidence = File(filesDir, "pulse_debug_replay.wav")
+        if (!evidence.isFile) return
+        cancelPulseVoiceInteraction(preserveCapture = true)
+        pulseWakeTrial?.suspendDetection()
+        val bytes = evidence.readBytes()
+        val buffer = ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        require(bytes.size > 44 && buffer.getInt(24) == 16_000 && buffer.getShort(22).toInt() == 1)
+        var position = 12
+        while (position + 8 <= bytes.size) {
+            val size = buffer.getInt(position + 4)
+            if (String(bytes, position, 4, Charsets.US_ASCII) == "data") {
+                require(size >= 0 && position + 8 + size <= bytes.size)
+                buffer.position(position + 8)
+                val samples = ShortArray(size / 2) { buffer.short }
+                pulseVoiceTrace.record("debug_evidence_replay", "samples=${samples.size}")
+                processPulseVoiceAudio(samples)
+                return
+            }
+            require(size >= 0)
+            position += 8 + size + size % 2
+        }
     }
 
     override fun onResume() {
@@ -603,6 +638,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         voiceSpeechStreamFinished = false
         voiceSpeechChunksPlayed = 0
         voiceContinueListeningAfterSpeech = false
+        val pendingEnqueues = java.util.concurrent.atomic.AtomicInteger(0)
+        voicePendingSpeechEnqueues = pendingEnqueues
         val requestStarted = SystemClock.elapsedRealtime()
         pulseVoiceTrace.record("request_started")
         voiceRequestJob?.cancel()
@@ -610,7 +647,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             val outcome = withContext(Dispatchers.IO) {
                 runCatching {
                     pulseVoiceClient.process(samples, cancellation) { wav ->
+                        pendingEnqueues.incrementAndGet()
                         mainHandler.post {
+                            pendingEnqueues.decrementAndGet()
                             if (generation == voiceRequestGeneration) enqueuePulseSpeech(wav)
                         }
                     }
@@ -638,9 +677,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                     transcript = result.transcript,
                     response = "",
                     failed = !result.ok,
-                    autoHideMs = if (voiceMediaPlayer == null && voiceSpeechQueue.isEmpty()) 5_000L else 0L
+                    autoHideMs = if (voiceMediaPlayer == null && voiceSpeechQueue.isEmpty() && pendingEnqueues.get() == 0) 5_000L else 0L
                 )
-                if (voiceMediaPlayer == null && voiceSpeechQueue.isEmpty()) finishPulseSpeech()
+                if (voiceMediaPlayer == null && voiceSpeechQueue.isEmpty() && pendingEnqueues.get() == 0) finishPulseSpeech()
             }.onFailure { error ->
                 pulseVoiceTrace.record(
                     "request_failed",
@@ -659,13 +698,14 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         }
     }
 
-    private fun enqueuePulseSpeech(wav: ByteArray) {
-        voiceSpeechQueue.addLast(wav)
+    private fun enqueuePulseSpeech(audio: PulseSpeechAudio) {
+        voiceSpeechQueue.addLast(audio)
         if (voiceMediaPlayer == null) playNextPulseSpeechChunk()
     }
 
     private fun finishPulseSpeech() {
-        if (!voiceSpeechStreamFinished || voiceMediaPlayer != null || voiceSpeechQueue.isNotEmpty()) return
+        if (!pulseSpeechMayFinish(voiceSpeechStreamFinished, voiceMediaPlayer != null,
+                voiceSpeechQueue.size, voicePendingSpeechEnqueues.get())) return
         pulseWakeTrial?.setSpeechInterruptionEnabled(false)
         pulseVoiceTrace.record("speech_playback_finished", "chunks=$voiceSpeechChunksPlayed")
         if (voiceContinueListeningAfterSpeech) {
@@ -684,40 +724,46 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     }
 
     private fun playNextPulseSpeechChunk() {
-        val wav = voiceSpeechQueue.removeFirstOrNull() ?: run {
+        val audio = voiceSpeechQueue.removeFirstOrNull() ?: run {
             finishPulseSpeech()
             return
         }
         val chunkNumber = voiceSpeechChunksPlayed + 1
-        pulseVoiceTrace.record(
-            if (voiceSpeechChunksPlayed == 0) "speech_playback_started" else "speech_playback_chunk_started",
-            "chunk=$chunkNumber bytes=${wav.size}"
-        )
         releaseVoiceMediaPlayer()
-        val file = File.createTempFile("pulse-response-", ".wav", cacheDir).apply { writeBytes(wav) }
-        voiceMediaPlayer = MediaPlayer().apply {
-            setDataSource(file.absolutePath)
-            setOnCompletionListener {
+        val generation = voiceRequestGeneration
+        val player = PulseStreamPlayer()
+        voiceMediaPlayer = player
+        player.play(audio.url, started = {
+            mainHandler.post {
+                if (generation != voiceRequestGeneration || voiceMediaPlayer !== player) return@post
+                pulseVoiceTrace.record(
+                    if (voiceSpeechChunksPlayed == 0) "speech_playback_started" else "speech_playback_chunk_started",
+                    "chunk=$chunkNumber progressive=true"
+                )
+                pulseWakeTrial?.setSpeechInterruptionEnabled(true)
+            }
+        }, completed = { underruns ->
+            mainHandler.post {
+                if (generation != voiceRequestGeneration || voiceMediaPlayer !== player) return@post
                 pulseVoiceTrace.record(
                     "speech_playback_chunk_finished",
-                    "chunk=$chunkNumber"
+                    "chunk=$chunkNumber underruns=$underruns"
                 )
                 voiceSpeechChunksPlayed += 1
-                file.delete()
                 releaseVoiceMediaPlayer()
                 playNextPulseSpeechChunk()
             }
-            setOnErrorListener { _, _, _ ->
-                file.delete()
+        }, failed = { error ->
+            mainHandler.post {
+                if (generation != voiceRequestGeneration || voiceMediaPlayer !== player) return@post
+                pulseVoiceTrace.record("speech_playback_failed", "error=${error.message}")
+                voiceSpeechQueue.clear()
+                voiceContinueListeningAfterSpeech = false
                 releaseVoiceMediaPlayer()
                 showVoiceState("Playback failed", failed = true, autoHideMs = 5_000L)
                 resumeVoiceAfterDelay()
-                true
             }
-            prepare()
-            start()
-        }
-        pulseWakeTrial?.setSpeechInterruptionEnabled(true)
+        })
     }
 
     private fun cancelPulseVoiceInteraction(preserveCapture: Boolean = false) {

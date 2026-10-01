@@ -324,6 +324,14 @@ internal class PulseWakeWordTrial(
     }
 
     @Synchronized
+    fun suspendDetection() {
+        capturingCommand = false
+        commandSamples.clear()
+        detectionSuspended = true
+        recentScores.clear()
+    }
+
+    @Synchronized
     fun captureCommandWithoutWake(): Boolean {
         if (!running.get() || capturingCommand) return false
         beginCommandCapture(includePreWake = false)

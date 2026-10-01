@@ -36,6 +36,8 @@ internal data class PulseVoiceResult(
     val continueListening: Boolean = false
 )
 
+internal data class PulseSpeechAudio(val url: String)
+
 internal class PulseVoiceClient(
     private val endpointId: String = "honor_endpoint",
     private val room: String = "Hall/Kitchen",
@@ -47,7 +49,7 @@ internal class PulseVoiceClient(
     fun openPromptedFollowup() { promptedFollowupUntilMillis = System.currentTimeMillis() + 18_000L }
     private val requestCancellation = ThreadLocal<PulseVoiceCancellation>()
 
-    fun process(samples: ShortArray, cancellation: PulseVoiceCancellation = PulseVoiceCancellation(), onSpeechChunk: (ByteArray) -> Unit): PulseVoiceResult {
+    fun process(samples: ShortArray, cancellation: PulseVoiceCancellation = PulseVoiceCancellation(), onSpeechChunk: (PulseSpeechAudio) -> Unit): PulseVoiceResult {
         requestCancellation.set(cancellation)
         try {
             cancellation.check()
@@ -59,7 +61,9 @@ internal class PulseVoiceClient(
         }
     }
 
-    private fun processRequest(samples: ShortArray, onSpeechChunk: (ByteArray) -> Unit): PulseVoiceResult {
+    private fun speechSource(text: String) = PulseSpeechAudio("$bridgeUrl${pulseTtsPath(text, endpointId)}&stream=true")
+
+    private fun processRequest(samples: ShortArray, onSpeechChunk: (PulseSpeechAudio) -> Unit): PulseVoiceResult {
         val stt = postBytes("/audio?endpoint_id=${encode(endpointId)}", wavBytes(samples), "audio/wav")
         val rawTranscript = stt.optJSONObject("stt")?.optString("text").orEmpty().trim()
         val transcript = PulseWakePhrase.commandAfterDetectedWake(rawTranscript)
@@ -74,13 +78,13 @@ internal class PulseVoiceClient(
         if (command == "chat") {
             chatSessionUntilMillis = now + CHAT_SESSION_MILLIS
             val response = "Chat is open. What would you like to talk about?"
-            onSpeechChunk(getBytes(pulseTtsPath(response, endpointId)))
+            onSpeechChunk(speechSource(response))
             return PulseVoiceResult(transcript, response, true, wakeVerified = true, continueListening = true)
         }
         if (now < chatSessionUntilMillis && command in CHAT_CLOSE_COMMANDS) {
             chatSessionUntilMillis = 0L
             val response = "Chat closed."
-            onSpeechChunk(getBytes(pulseTtsPath(response, endpointId)))
+            onSpeechChunk(speechSource(response))
             return PulseVoiceResult(transcript, response, true, wakeVerified = true)
         }
         val chatFollowup = now < chatSessionUntilMillis && !PulseCommandGate.accepts(transcript)
@@ -106,7 +110,7 @@ internal class PulseVoiceClient(
             val error = route.optString("error", route.optString("reason", "Pulse could not complete that request"))
             return PulseVoiceResult(transcript, response.ifBlank { error }, false, wakeVerified = true, error = error)
         }
-        for (chunk in pulseCompleteSpeechChunks(response)) onSpeechChunk(getBytes(pulseTtsPath(chunk, endpointId)))
+        if (response.isNotBlank()) onSpeechChunk(speechSource(response))
         return PulseVoiceResult(
             transcript,
             response,
@@ -119,7 +123,7 @@ internal class PulseVoiceClient(
     private fun processQuestionStream(
         transcript: String,
         payload: JSONObject,
-        onSpeechChunk: (ByteArray) -> Unit
+        onSpeechChunk: (PulseSpeechAudio) -> Unit
     ): PulseVoiceResult {
         val connection = URL("$bridgeUrl/question-stream").openConnection() as HttpURLConnection
         requestCancellation.get()?.register(connection)
@@ -147,7 +151,7 @@ internal class PulseVoiceClient(
                 val spoken = spokenResponse(route)
                 val ok = route.optBoolean("ok", false)
                 val error = if (ok) "" else route.optString("error", "Pulse could not complete that request")
-                for (chunk in pulseCompleteSpeechChunks(spoken)) onSpeechChunk(getBytes(pulseTtsPath(chunk, endpointId)))
+                if (spoken.isNotBlank()) onSpeechChunk(speechSource(spoken))
                 return PulseVoiceResult(transcript, spoken, ok, wakeVerified = true,
                     error = error, continueListening = route.optBoolean("listen_again", false))
             }
@@ -162,10 +166,6 @@ internal class PulseVoiceClient(
                             if (chunk.isNotBlank()) {
                                 answer = listOf(answer, chunk).filter(String::isNotBlank).joinToString(" ")
                                 pendingSpeech = listOf(pendingSpeech, chunk).filter(String::isNotBlank).joinToString(" ")
-                                if (pendingSpeech.length >= 100) {
-                                    for (part in pulseCompleteSpeechChunks(pendingSpeech)) onSpeechChunk(getBytes(pulseTtsPath(part, endpointId)))
-                                    pendingSpeech = ""
-                                }
                             }
                         }
                         "done" -> {
@@ -176,7 +176,7 @@ internal class PulseVoiceClient(
                     }
                 }
             }
-            if (pendingSpeech.isNotBlank()) onSpeechChunk(getBytes(pulseTtsPath(pendingSpeech, endpointId)))
+            if (pendingSpeech.isNotBlank()) onSpeechChunk(speechSource(pendingSpeech))
             return PulseVoiceResult(transcript, answer, true, wakeVerified = true, continueListening = listenAgain)
         } finally {
             requestCancellation.get()?.release(connection)
