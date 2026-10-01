@@ -76,6 +76,11 @@ android {
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")
             version = "3.22.1"
+            // Network-volume builds need native compiler scratch space on a
+            // local filesystem (SMB does not support all CMake operations).
+            providers.gradleProperty("pulseNativeBuildDir").orNull?.let {
+                buildStagingDirectory = file(it)
+            }
         }
     }
 

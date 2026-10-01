@@ -22,6 +22,7 @@ internal sealed interface PulseWakeTrialEvent {
     data object SpeechStarted : PulseWakeTrialEvent
     data class AudioCaptured(val samples: ShortArray) : PulseWakeTrialEvent
     data object NoSpeech : PulseWakeTrialEvent
+    data object StopDetected : PulseWakeTrialEvent
     data class Failed(val detail: String) : PulseWakeTrialEvent
 }
 
@@ -55,6 +56,8 @@ internal class PulseWakeWordTrial(
     private val applicationContext = context.applicationContext
     private val frontend = MicroFrontend()
     private var interpreter: Interpreter? = null
+    private var stopDetector: PulseStopDetector? = null
+    @Volatile private var speechInterruptionEnabled = false
     private var inputFrames = 0
     private var inputScale = 1f
     private var inputZeroPoint = 0
@@ -82,6 +85,11 @@ internal class PulseWakeWordTrial(
 
     init {
         loadModel()
+        runCatching {
+            stopDetector = PulseStopDetector(applicationContext)
+            Log.i(TAG, "Loaded local Stop model with Waveshare cutoff 170/255 and window 5")
+        }
+            .onFailure { onEvent(PulseWakeTrialEvent.Failed("Local Stop model could not load: ${it.message}")) }
     }
 
     private fun loadModel() {
@@ -119,7 +127,7 @@ internal class PulseWakeWordTrial(
     @SuppressLint("MissingPermission")
     fun start() {
         if (!running.compareAndSet(false, true)) return
-        if (interpreter == null || !frontend.isInitialized) {
+        if (interpreter == null || stopDetector == null || !frontend.isInitialized) {
             running.set(false)
             onEvent(PulseWakeTrialEvent.Failed("Wake model is unavailable"))
             return
@@ -175,7 +183,8 @@ internal class PulseWakeWordTrial(
                     else if (count < 0) throw IllegalStateException("AudioRecord error $count")
                 }
                 if (filled == chunk.size) {
-                    if (capturingCommand) processCommandChunk(chunk) else processChunk(chunk)
+                    if (speechInterruptionEnabled) processStopChunk(chunk)
+                    else if (capturingCommand) processCommandChunk(chunk) else processChunk(chunk)
                 }
             }
         } catch (error: Exception) {
@@ -183,6 +192,21 @@ internal class PulseWakeWordTrial(
                 Log.e(TAG, "Capture loop failed", error)
                 onEvent(PulseWakeTrialEvent.Failed("Wake listener stopped: ${error.message}"))
             }
+        }
+    }
+
+    @Synchronized
+    fun setSpeechInterruptionEnabled(enabled: Boolean) {
+        if (speechInterruptionEnabled == enabled) return
+        stopDetector?.reset()
+        speechInterruptionEnabled = enabled
+    }
+
+    @Synchronized
+    private fun processStopChunk(chunk: ShortArray) {
+        if (speechInterruptionEnabled && stopDetector?.accepts(chunk) == true) {
+            speechInterruptionEnabled = false
+            onEvent(PulseWakeTrialEvent.StopDetected)
         }
     }
 
@@ -355,5 +379,6 @@ internal class PulseWakeWordTrial(
         interpreter?.close()
         interpreter = null
         frontend.close()
+        stopDetector?.close()
     }
 }

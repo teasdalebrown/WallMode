@@ -147,6 +147,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private val pulseVoiceClient = PulseVoiceClient()
     private val pulseVoiceTrace by lazy { PulseVoiceTrace(this) }
     private var voiceRequestJob: Job? = null
+    private var voiceRequestCancellation: PulseVoiceCancellation? = null
+    private var voiceRequestGeneration = 0L
     private var voiceHeartbeatJob: Job? = null
     private var voiceMediaPlayer: MediaPlayer? = null
     private val voiceSpeechQueue = ArrayDeque<ByteArray>()
@@ -520,6 +522,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             when (event) {
                 is PulseWakeTrialEvent.Ready -> Log.i(TAG, event.detail)
                 is PulseWakeTrialEvent.Detected -> {
+                    // A new wake is not a reply to an earlier chat prompt.
+                    pulseVoiceClient.closeConversation()
                     Log.i(TAG, "Hey Pulse detected at ${(event.probability * 100).roundToInt()}%")
                     pulseVoiceTrace.record(
                         "wake_detected",
@@ -532,6 +536,10 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                     showVoiceState(getString(R.string.voice_listening))
                 }
                 PulseWakeTrialEvent.SpeechStarted -> pulseVoiceTrace.record("speech_started")
+                PulseWakeTrialEvent.StopDetected -> {
+                    pulseVoiceTrace.record("local_stop_detected")
+                    cancelPulseVoiceInteraction()
+                }
                 is PulseWakeTrialEvent.AudioCaptured -> {
                     pulseVoiceTrace.record(
                         "audio_captured",
@@ -540,6 +548,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                     processPulseVoiceAudio(event.samples)
                 }
                 PulseWakeTrialEvent.NoSpeech -> {
+                    pulseVoiceClient.closeConversation()
                     pulseVoiceTrace.record("no_speech")
                     hideVoiceOverlay()
                     resumeVoiceAfterDelay()
@@ -585,6 +594,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     }
 
     private fun processPulseVoiceAudio(samples: ShortArray) {
+        voiceRequestCancellation?.cancel()
+        val cancellation = PulseVoiceCancellation().also { voiceRequestCancellation = it }
+        val generation = ++voiceRequestGeneration
         showVoiceState(getString(R.string.voice_thinking))
         releaseVoiceMediaPlayer()
         voiceSpeechQueue.clear()
@@ -597,11 +609,14 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         voiceRequestJob = scope.launch {
             val outcome = withContext(Dispatchers.IO) {
                 runCatching {
-                    pulseVoiceClient.process(samples) { wav ->
-                        mainHandler.post { enqueuePulseSpeech(wav) }
+                    pulseVoiceClient.process(samples, cancellation) { wav ->
+                        mainHandler.post {
+                            if (generation == voiceRequestGeneration) enqueuePulseSpeech(wav)
+                        }
                     }
                 }
             }
+            if (generation != voiceRequestGeneration) return@launch
             outcome.onSuccess { result ->
                 voiceSpeechStreamFinished = true
                 voiceContinueListeningAfterSpeech = result.continueListening
@@ -651,9 +666,11 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
     private fun finishPulseSpeech() {
         if (!voiceSpeechStreamFinished || voiceMediaPlayer != null || voiceSpeechQueue.isNotEmpty()) return
+        pulseWakeTrial?.setSpeechInterruptionEnabled(false)
         pulseVoiceTrace.record("speech_playback_finished", "chunks=$voiceSpeechChunksPlayed")
         if (voiceContinueListeningAfterSpeech) {
             voiceContinueListeningAfterSpeech = false
+            pulseVoiceClient.openPromptedFollowup()
             hideVoiceOverlay()
             startConversationCaptureAfterDelay(700L)
             return
@@ -700,17 +717,24 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             prepare()
             start()
         }
+        pulseWakeTrial?.setSpeechInterruptionEnabled(true)
     }
 
-    private fun cancelPulseVoiceInteraction() {
+    private fun cancelPulseVoiceInteraction(preserveCapture: Boolean = false) {
+        pulseWakeTrial?.setSpeechInterruptionEnabled(false)
+        pulseVoiceClient.closeConversation()
+        ++voiceRequestGeneration
+        voiceRequestCancellation?.cancel()
+        voiceRequestCancellation = null
         voiceRequestJob?.cancel()
         voiceRequestJob = null
-        pulseWakeTrial?.cancelCommandCapture()
+        if (!preserveCapture) pulseWakeTrial?.cancelCommandCapture()
         releaseVoiceMediaPlayer()
         voiceSpeechQueue.clear()
         voiceSpeechStreamFinished = true
+        voiceContinueListeningAfterSpeech = false
         hideVoiceOverlay()
-        resumeVoiceAfterDelay()
+        if (!preserveCapture) resumeVoiceAfterDelay()
     }
 
     private fun resumeVoiceAfterDelay(delayMs: Long = 2_500L) {
@@ -725,9 +749,10 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     }
 
     private fun startConversationCaptureAfterDelay(delayMs: Long) {
+        val generation = voiceRequestGeneration
         pulseVoiceTrace.record("conversation_capture_scheduled", "delay_ms=$delayMs")
         mainHandler.postDelayed({
-            if (!isFinishing && !isDestroyed && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            if (generation == voiceRequestGeneration && !isFinishing && !isDestroyed && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
                 prepareDashboardBehindVoice()
                 showVoiceState(getString(R.string.voice_listening))
                 pulseVoiceTrace.record("conversation_capture_started")
