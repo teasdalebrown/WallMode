@@ -151,6 +151,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private var voiceRequestGeneration = 0L
     private var voiceHeartbeatJob: Job? = null
     private var voiceMediaPlayer: PulseStreamPlayer? = null
+    private var voiceSilentProof = false
     private var voicePendingSpeechEnqueues = java.util.concurrent.atomic.AtomicInteger(0)
     private val voiceSpeechQueue = ArrayDeque<PulseSpeechAudio>()
     private var voiceSpeechStreamFinished = false
@@ -334,10 +335,12 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         if ((applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) == 0) return
         if (intent.getBooleanExtra("pulse_debug_cancel", false)) {
             cancelPulseVoiceInteraction()
+            voiceSilentProof = false
             pulseVoiceTrace.record("debug_cancel")
             return
         }
         if (!intent.getBooleanExtra("pulse_debug_replay", false)) return
+        voiceSilentProof = intent.getBooleanExtra("pulse_debug_silent", false)
         val evidence = File(filesDir, "pulse_debug_replay.wav")
         if (!evidence.isFile) return
         cancelPulseVoiceInteraction(preserveCapture = true)
@@ -687,7 +690,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                 )
                 Log.e(TAG, "Pulse voice request failed", error)
                 showVoiceState(
-                    "Pulse Core unavailable",
+                    "Unable to complete request",
                     response = error.message ?: "The request could not be completed",
                     failed = true,
                     autoHideMs = 7_000L
@@ -731,14 +734,14 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         val chunkNumber = voiceSpeechChunksPlayed + 1
         releaseVoiceMediaPlayer()
         val generation = voiceRequestGeneration
-        val player = PulseStreamPlayer()
+        val player = PulseStreamPlayer(silentProof = voiceSilentProof)
         voiceMediaPlayer = player
         player.play(audio.url, started = {
             mainHandler.post {
                 if (generation != voiceRequestGeneration || voiceMediaPlayer !== player) return@post
                 pulseVoiceTrace.record(
                     if (voiceSpeechChunksPlayed == 0) "speech_playback_started" else "speech_playback_chunk_started",
-                    "chunk=$chunkNumber progressive=true"
+                    "chunk=$chunkNumber progressive=true silent_proof=$voiceSilentProof"
                 )
                 pulseWakeTrial?.setSpeechInterruptionEnabled(true)
             }

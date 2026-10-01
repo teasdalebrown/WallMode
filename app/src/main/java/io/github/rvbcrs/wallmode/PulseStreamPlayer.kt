@@ -11,7 +11,7 @@ import java.nio.ByteOrder
 import java.util.concurrent.CancellationException
 
 /** PCM WAV transport, including a live WAV with an unknown final length. */
-internal class PulseStreamPlayer {
+internal class PulseStreamPlayer(private val silentProof: Boolean = false) {
     @Volatile private var cancelled = false
     @Volatile private var connection: HttpURLConnection? = null
     @Volatile private var track: AudioTrack? = null
@@ -54,6 +54,7 @@ internal class PulseStreamPlayer {
                             .setChannelMask(AudioFormat.CHANNEL_OUT_MONO).setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
                         .setTransferMode(AudioTrack.MODE_STREAM).setBufferSizeInBytes(maxOf(minimum, rate * 2)).build()
                     track = player
+                    if (silentProof) player.setVolume(0f)
                     checkActive()
                     var bytesWritten = 0L
                     var supplyUnderruns = 0
