@@ -77,6 +77,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Added a guarded debug-kiosk installer that reasserts and verifies WallMode's
+  Android Home role after APK replacement, preventing MagicOS from silently
+  returning an HONOR kiosk tablet to its OEM launcher on the next reboot.
+
 - Connected opt-in startup Home Assistant discovery for the default HA address, while preserving chosen dashboard URLs and ignoring late results after navigation, settings changes or event takeovers.
 - Applied the native settings admin-unlock timeout with process-local, monotonic sessions scoped to the password and preference store; password changes invalidate remembered access, and kiosk exit still requires fresh authentication.
 - Prevented stale WebView callbacks from hiding the loading or recovery state for a newer navigation.

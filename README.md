@@ -579,6 +579,25 @@ adb connect "${TABLET_IP}:5555"
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
+For a kiosk tablet, use the guarded installer instead:
+
+```shell
+ADB_BIN="$HOME/Library/Android/sdk/platform-tools/adb" \
+  tools/install_debug_kiosk.sh
+```
+
+It installs the debug APK, reasserts WallMode as Android's Home application,
+verifies the resolved Home activity, and launches it. Set `ANDROID_SERIAL` when
+more than one ADB device is connected, or pass an APK path as the first
+argument.
+
+Some OEM launchers, including MagicOS on the HONOR tablet used for Pulse, may
+reclaim the Home role when an APK is replaced. The app's **Start on boot**
+setting and `BOOT_COMPLETED` receiver can remain enabled yet still fail to take
+the foreground under modern background-activity restrictions. Therefore every
+kiosk APK deployment must verify the Home role immediately; a successful APK
+install alone is not deployment success.
+
 The debug package ID is `io.github.rvbcrs.wallmode.debug`; the release package ID is `io.github.rvbcrs.wallmode`.
 
 For stable-release readiness, follow [RELEASING.md](RELEASING.md). Neither a debug build nor an automated pre-release proves physical-device acceptance.
@@ -593,6 +612,14 @@ For stable-release readiness, follow [RELEASING.md](RELEASING.md). Neither a deb
 4. Try the Chromium-like profile or desktop user agent.
 5. Enable mixed content only if an HTTPS page embeds required HTTP resources.
 6. Check Diagnostics for the last URL, load state, network, and active browser profile. The WebView version is also available through the Home Assistant MQTT device.
+
+### The tablet returns to its OEM launcher after reboot
+
+Confirm that WallMode is still the default Home application. On development
+tablets, rerun `tools/install_debug_kiosk.sh`; it restores and verifies the
+debug package's Home role. Do not treat **Start on boot** as a substitute for
+the launcher role, because Android or the OEM may block an activity launch from
+`BOOT_COMPLETED`.
 
 ### A dashboard button overlaps the hidden settings corner
 
