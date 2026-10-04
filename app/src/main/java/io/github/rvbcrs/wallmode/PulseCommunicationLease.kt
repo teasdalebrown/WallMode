@@ -5,7 +5,8 @@ internal class PulseCommunicationLease(
     private val previousMode: Int,
     private val communicationMode: Int,
     private val setMode: (Int) -> Unit,
-    private val setCapture: (Boolean, Boolean) -> Boolean
+    private val setCapture: (Boolean, Boolean) -> Boolean,
+    private val setSpeechVolumeTarget: (Boolean) -> Unit = {}
 ) {
     private var closed = false
     private var entered = false
@@ -14,7 +15,7 @@ internal class PulseCommunicationLease(
         if (entered) return true
         return try {
             setMode(communicationMode)
-            if (setCapture(true, true)) { entered = true; true } else { close(true); false }
+            if (setCapture(true, true)) { setSpeechVolumeTarget(true); entered = true; true } else { close(true); false }
         } catch (_: Exception) { close(true); false }
     }
 
@@ -23,7 +24,9 @@ internal class PulseCommunicationLease(
         closed = true
         // Release the communication recorder before returning its route/mode.
         try { setCapture(false, false) } finally {
-            try { setMode(previousMode) } finally { if (resumeCapture) setCapture(false, true) }
+            try { setMode(previousMode) } finally {
+                try { setSpeechVolumeTarget(false) } finally { if (resumeCapture) setCapture(false, true) }
+            }
         }
     }
 }

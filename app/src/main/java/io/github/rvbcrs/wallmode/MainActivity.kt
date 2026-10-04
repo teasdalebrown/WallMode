@@ -407,9 +407,14 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         if (voiceCommunicationLease != null) return true
         val manager = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
         val previousMode = manager.mode
+        val previousVolumeStream = volumeControlStream
         val lease = PulseCommunicationLease(previousMode, android.media.AudioManager.MODE_IN_COMMUNICATION,
             { manager.mode = it; check(manager.mode == it) { "Audio mode change unavailable" } },
-            { enabled, resume -> pulseWakeTrial?.setCommunicationCapture(enabled, resume) == true })
+            { enabled, resume -> pulseWakeTrial?.setCommunicationCapture(enabled, resume) == true },
+            { speechActive ->
+                volumeControlStream = if (speechActive) android.media.AudioManager.STREAM_VOICE_CALL else previousVolumeStream
+                pulseVoiceTrace.record("speech_volume_target", "active=$speechActive stream=$volumeControlStream")
+            })
         voiceCommunicationLease = lease
         if (runCatching { lease.enter() }.getOrDefault(false) != true) {
             restoreVoiceCommunication(true)

@@ -40,4 +40,29 @@ class PulseCommunicationLeaseTest {
         lease.close(true); assertFalse(lease.enter())
         assertEquals(2,modes); assertEquals(1,communicationStarts)
     }
+    @Test fun speechChunksTargetCallVolumeAndRestoreExactActivityControlOnCompletionOrPause() {
+        for (resume in listOf(true, false)) {
+            var target = -1; val targets = mutableListOf<Int>()
+            val lease = PulseCommunicationLease(0, 3, {}, { _, _ -> true }, { active ->
+                target = if (active) 0 else -1; targets.add(target)
+            })
+            repeat(3) { assertTrue(lease.enter()) }
+            assertEquals(0, target); assertEquals(listOf(0), targets)
+            lease.close(resume); lease.close(resume)
+            assertEquals(-1, target); assertEquals(listOf(0, -1), targets)
+        }
+    }
+    @Test fun unavailableCaptureNeverTargetsSpeechVolume() {
+        val targets = mutableListOf<Boolean>()
+        val lease = PulseCommunicationLease(0, 3, {}, { enabled, _ -> !enabled }, { targets.add(it) })
+        assertFalse(lease.enter()); assertEquals(listOf(false), targets)
+    }
+    @Test fun volumeTargetFailureRestoresModeCaptureAndPriorControl() {
+        var mode = 0; var restored = false; var captureResumed = false
+        val lease = PulseCommunicationLease(0, 3, { mode = it }, { e,r -> if (!e && r) captureResumed = true; true }, { active ->
+            if (active) throw IllegalStateException("target unavailable")
+            restored = true
+        })
+        assertFalse(lease.enter()); assertEquals(0, mode); assertTrue(restored); assertTrue(captureResumed)
+    }
 }
