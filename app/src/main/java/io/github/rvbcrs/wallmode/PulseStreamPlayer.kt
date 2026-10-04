@@ -24,7 +24,7 @@ internal class PulseStreamPlayer(private val silentProof: Boolean = false, priva
         return "rate=$diagnosticSampleRate played_frames=$frames written_frames=${diagnosticBytesWritten / 2}"
     }
 
-    fun play(url: String, started: () -> Unit, completed: (Int) -> Unit, failed: (Throwable) -> Unit, beforeStart: () -> Unit = {}, fixedDebugWav: ByteArray? = null) {
+    fun play(url: String, started: () -> Unit, completed: (Int) -> Unit, failed: (Throwable) -> Unit, beforeStart: () -> Unit = {}, fixedDebugWav: ByteArray? = null, communicationDiagnostic: Boolean = false) {
         Thread({
             try {
                 val source = if (fixedDebugWav != null) {
@@ -62,7 +62,7 @@ internal class PulseStreamPlayer(private val silentProof: Boolean = false, priva
                     require(rate in 8_000..48_000)
                     val minimum = AudioTrack.getMinBufferSize(rate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
                     val player = AudioTrack.Builder()
-                        .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setAudioAttributes(AudioAttributes.Builder().setUsage(if (communicationDiagnostic) AudioAttributes.USAGE_VOICE_COMMUNICATION else AudioAttributes.USAGE_MEDIA)
                             .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
                         .setAudioFormat(AudioFormat.Builder().setSampleRate(rate)
                             .setChannelMask(AudioFormat.CHANNEL_OUT_MONO).setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())

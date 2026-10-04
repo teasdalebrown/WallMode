@@ -36,7 +36,7 @@ internal data class PulseVoiceResult(
     val continueListening: Boolean = false
 )
 
-internal data class PulseSpeechAudio(val url: String, val waitCue: Boolean = false, val progressCue: Boolean = false, val preparationCue: Boolean = false, val fixedDebugWav: ByteArray? = null)
+internal data class PulseSpeechAudio(val url: String, val waitCue: Boolean = false, val progressCue: Boolean = false, val preparationCue: Boolean = false, val fixedDebugWav: ByteArray? = null, val communicationDiagnostic: Boolean = false)
 
 internal class PulseVoiceClient(
     private val endpointId: String = "honor_endpoint",

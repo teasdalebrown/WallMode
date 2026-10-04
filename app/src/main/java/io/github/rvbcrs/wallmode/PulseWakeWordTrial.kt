@@ -70,6 +70,7 @@ internal class PulseWakeWordTrial(
     private val preWakeSamples = ArrayDeque<Short>(PRE_WAKE_SAMPLES)
     private val running = AtomicBoolean(false)
     private var audioRecord: AudioRecord? = null
+    private var captureSource = MediaRecorder.AudioSource.VOICE_RECOGNITION
     private var noiseSuppressor: NoiseSuppressor? = null
     private var echoCanceler: AcousticEchoCanceler? = null
     private var captureThread: Thread? = null
@@ -138,7 +139,7 @@ internal class PulseWakeWordTrial(
             AudioFormat.ENCODING_PCM_16BIT
         )
         val recorder = AudioRecord(
-            MediaRecorder.AudioSource.VOICE_RECOGNITION,
+            captureSource,
             SAMPLE_RATE,
             AudioFormat.CHANNEL_IN_MONO,
             AudioFormat.ENCODING_PCM_16BIT,
@@ -203,7 +204,7 @@ internal class PulseWakeWordTrial(
 
     @Synchronized
     fun stopDiagnostic(): String =
-        "stop_armed=$speechInterruptionEnabled scores=${stopDetector?.lastTriggerScores?.joinToString(",")} " +
+        "capture_source=$captureSource stop_armed=$speechInterruptionEnabled scores=${stopDetector?.lastTriggerScores?.joinToString(",")} " +
         "aec_available=${AcousticEchoCanceler.isAvailable()} " +
         "aec_created=${echoCanceler != null} aec_enabled=${echoCanceler?.enabled} " +
         "ns_created=${noiseSuppressor != null} ns_enabled=${noiseSuppressor?.enabled}"
@@ -371,6 +372,14 @@ internal class PulseWakeWordTrial(
         commandSilenceSamples = 0
         commandPostWakeSamples = 0
         preWakeSamples.clear()
+    }
+
+    fun setCommunicationCapture(enabled: Boolean, resume: Boolean): Boolean {
+        stop()
+        captureSource = if (enabled) MediaRecorder.AudioSource.VOICE_COMMUNICATION else MediaRecorder.AudioSource.VOICE_RECOGNITION
+        if (!resume) return true
+        start()
+        return running.get() && audioRecord?.recordingState == AudioRecord.RECORDSTATE_RECORDING
     }
 
     fun stop() {

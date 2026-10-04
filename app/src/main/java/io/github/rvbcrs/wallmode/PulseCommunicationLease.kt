@@ -1,0 +1,24 @@
+package io.github.rvbcrs.wallmode
+
+/** Reversible debug test lease; no routing preference or gain is changed. */
+internal class PulseCommunicationLease(
+    private val previousMode: Int,
+    private val communicationMode: Int,
+    private val setMode: (Int) -> Unit,
+    private val setCapture: (Boolean, Boolean) -> Boolean
+) {
+    private var closed = false
+    fun enter(): Boolean = try {
+        setMode(communicationMode)
+        if (setCapture(true, true)) true else { close(true); false }
+    } catch (_: Exception) { close(true); false }
+
+    fun close(resumeCapture: Boolean) {
+        if (closed) return
+        closed = true
+        // Release the communication recorder before returning its route/mode.
+        try { setCapture(false, false) } finally {
+            try { setMode(previousMode) } finally { if (resumeCapture) setCapture(false, true) }
+        }
+    }
+}
