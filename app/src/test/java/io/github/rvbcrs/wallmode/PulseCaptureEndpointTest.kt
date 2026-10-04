@@ -4,6 +4,20 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PulseCaptureEndpointTest {
+    @Test fun chatAllowsThinkingBeforeSpeechButRemainsFinite() {
+        assertNull(PulseCaptureEndpoint.endReason(14 * 16_000, false, 0, chat = true))
+        assertEquals(PulseCaptureEndReason.NO_SPEECH,
+            PulseCaptureEndpoint.endReason(15 * 16_000, false, 0, chat = true))
+    }
+
+    @Test fun chatAllowsThinkingPausesAndStillEndsTurnAndBoundsCapture() {
+        assertNull(PulseCaptureEndpoint.endReason(10 * 16_000, true, 4 * 16_000, chat = true))
+        assertEquals(PulseCaptureEndReason.SILENCE,
+            PulseCaptureEndpoint.endReason(11 * 16_000, true, 5 * 16_000, chat = true))
+        assertEquals(PulseCaptureEndReason.SAFETY_LIMIT,
+            PulseCaptureEndpoint.endReason(30 * 16_000, true, 0, chat = true))
+    }
+
     private val chunk = 1_280
 
     @Test fun continuingDetailedQuestionPassesOldSevenSecondCutoff() {

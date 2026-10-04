@@ -1029,7 +1029,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                 prepareDashboardBehindVoice()
                 showVoiceState(getString(R.string.voice_listening))
                 pulseVoiceTrace.record("conversation_capture_started")
-                if (pulseWakeTrial?.captureCommandWithoutWake() != true) {
+                if (pulseWakeTrial?.captureCommandWithoutWake(chat = pulseVoiceClient.chatIsActive()) != true) {
                     pulseVoiceTrace.record("conversation_capture_failed")
                     hideVoiceOverlay()
                     resumeVoiceAfterDelay()

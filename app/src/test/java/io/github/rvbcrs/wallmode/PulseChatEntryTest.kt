@@ -18,7 +18,10 @@ class PulseChatEntryTest {
                 val result = client.openBareChatIfRequested(transcript, 1000L, chunks::add)
                 assertNotNull(transcript, result)
                 assertEquals(transcript, result!!.transcript)
-                assertEquals("Chat is open. What would you like to talk about?", result.response)
+                assertEquals(if (persona == "morris") "Okay… I have a bit of time to spare. What’s up?"
+                    else "Great… let’s have a natter.", result.response)
+                assertTrue(client.chatIsActive(1000L))
+                assertFalse(client.chatIsActive(601000L))
                 assertTrue(result.ok)
                 assertTrue(result.wakeVerified)
                 assertTrue(result.continueListening)

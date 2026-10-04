@@ -51,6 +51,7 @@ internal class PulseVoiceClient(
     }
     @Volatile private var chatSessionUntilMillis = 0L
     @Volatile private var promptedFollowupUntilMillis = 0L
+    fun chatIsActive(nowMillis: Long = System.currentTimeMillis()): Boolean = nowMillis < chatSessionUntilMillis
     fun closeConversation() { chatSessionUntilMillis = 0L; promptedFollowupUntilMillis = 0L }
     fun openPromptedFollowup() { promptedFollowupUntilMillis = System.currentTimeMillis() + 18_000L }
     private val requestCancellation = ThreadLocal<PulseVoiceCancellation>()
@@ -64,7 +65,9 @@ internal class PulseVoiceClient(
         // Chat command, keeping its displayed transcript and payload routes intact.
         if (!BARE_CHAT_COMMAND.matches(transcript.trim())) return null
         chatSessionUntilMillis = nowMillis + CHAT_SESSION_MILLIS
-        val response = "Chat is open. What would you like to talk about?"
+        val response = if (detectedWakeWord == "morris")
+            "Okay… I have a bit of time to spare. What’s up?"
+        else "Great… let’s have a natter."
         onSpeechChunk(speechSource(response))
         return PulseVoiceResult(transcript, response, true, wakeVerified = true, continueListening = true)
     }

@@ -275,8 +275,11 @@ internal class PulseWakeWordTrial(
         }
     }
 
+    private var chatCapture = false
+
     @Synchronized
-    private fun beginCommandCapture(includePreWake: Boolean = true) {
+    private fun beginCommandCapture(includePreWake: Boolean = true, chat: Boolean = false) {
+        chatCapture = chat
         acousticStopGate.invalidate()
         capturingCommand = true
         detectionSuspended = true
@@ -309,7 +312,7 @@ internal class PulseWakeWordTrial(
         } else if (commandSpeechStarted) {
             commandSilenceSamples += chunk.size
         }
-        PulseCaptureEndpoint.endReason(commandPostWakeSamples, commandSpeechStarted, commandSilenceSamples)
+        PulseCaptureEndpoint.endReason(commandPostWakeSamples, commandSpeechStarted, commandSilenceSamples, chatCapture)
             ?.let(::finishCommandCapture)
     }
 
@@ -356,9 +359,9 @@ internal class PulseWakeWordTrial(
     }
 
     @Synchronized
-    fun captureCommandWithoutWake(): Boolean {
+    fun captureCommandWithoutWake(chat: Boolean = false): Boolean {
         if (!running.get() || capturingCommand) return false
-        beginCommandCapture(includePreWake = false)
+        beginCommandCapture(includePreWake = false, chat = chat)
         return true
     }
 
