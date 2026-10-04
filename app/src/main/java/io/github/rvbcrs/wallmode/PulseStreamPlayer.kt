@@ -11,8 +11,9 @@ import java.nio.ByteOrder
 import java.util.concurrent.CancellationException
 
 /** PCM WAV transport, including a live WAV with an unknown final length. */
-internal class PulseStreamPlayer(private val silentProof: Boolean = false) {
-    @Volatile private var cancelled = false
+internal class PulseStreamPlayer(private val silentProof: Boolean = false, private val optionalCue: Boolean = false) {
+    private val playbackGate = PulsePlaybackGate()
+    val hasStarted get() = playbackGate.hasStarted
     @Volatile private var connection: HttpURLConnection? = null
     @Volatile private var track: AudioTrack? = null
 
@@ -21,8 +22,8 @@ internal class PulseStreamPlayer(private val silentProof: Boolean = false) {
             try {
                 val http = URL(url).openConnection() as HttpURLConnection
                 connection = http
-                http.connectTimeout = 15_000
-                http.readTimeout = 150_000
+                http.connectTimeout = if (optionalCue) 800 else 15_000
+                http.readTimeout = if (optionalCue) 800 else 150_000
                 checkActive()
                 DataInputStream(http.inputStream).use { input ->
                     val header = ByteArray(12).also(input::readFully)
@@ -81,7 +82,7 @@ internal class PulseStreamPlayer(private val silentProof: Boolean = false) {
                             offset += written
                             bytesWritten += written
                         }
-                        if (!playing) { player.play(); playing = true; started() }
+                        if (!playing) { playbackGate.start { player.play() }; playing = true; started() }
                         supplyUnderruns = player.underrunCount
                         remaining -= count
                     }
@@ -100,7 +101,7 @@ internal class PulseStreamPlayer(private val silentProof: Boolean = false) {
                     completed(supplyUnderruns)
                 }
             } catch (error: Throwable) {
-                if (!cancelled) failed(error)
+                if (!playbackGate.cancelled) failed(error)
             } finally {
                 connection?.disconnect()
                 connection = null
@@ -112,12 +113,13 @@ internal class PulseStreamPlayer(private val silentProof: Boolean = false) {
         }, "PulseSpeechStream").start()
     }
 
-    private fun checkActive() { if (cancelled) throw CancellationException("Speech cancelled") }
+    private fun checkActive() = playbackGate.checkActive()
     fun stop() {
-        cancelled = true
+        playbackGate.cancel {
+            runCatching { track?.pause() }
+            runCatching { track?.flush() }
+        }
         connection?.disconnect()
-        runCatching { track?.pause() }
-        runCatching { track?.flush() }
     }
     fun release() = stop()
 }

@@ -36,7 +36,7 @@ internal data class PulseVoiceResult(
     val continueListening: Boolean = false
 )
 
-internal data class PulseSpeechAudio(val url: String)
+internal data class PulseSpeechAudio(val url: String, val waitCue: Boolean = false)
 
 internal class PulseVoiceClient(
     private val endpointId: String = "honor_endpoint",
@@ -55,11 +55,11 @@ internal class PulseVoiceClient(
     fun openPromptedFollowup() { promptedFollowupUntilMillis = System.currentTimeMillis() + 18_000L }
     private val requestCancellation = ThreadLocal<PulseVoiceCancellation>()
 
-    fun process(samples: ShortArray, cancellation: PulseVoiceCancellation = PulseVoiceCancellation(), onSpeechChunk: (PulseSpeechAudio) -> Unit): PulseVoiceResult {
+    fun process(samples: ShortArray, cancellation: PulseVoiceCancellation = PulseVoiceCancellation(), onTranscript: (String) -> Unit = {}, onSpeechChunk: (PulseSpeechAudio) -> Unit): PulseVoiceResult {
         requestCancellation.set(cancellation)
         try {
             cancellation.check()
-            val result = processRequest(samples) { wav -> cancellation.check(); onSpeechChunk(wav) }
+            val result = processRequest(samples, onTranscript) { wav -> cancellation.check(); onSpeechChunk(wav) }
             cancellation.check()
             return result
         } finally {
@@ -67,15 +67,18 @@ internal class PulseVoiceClient(
         }
     }
 
-    private fun speechSource(text: String) = PulseSpeechAudio("$bridgeUrl${pulseTtsPath(text, endpointId)}&stream=true")
+    private fun speechSource(text: String, waitCue: Boolean = false) =
+        PulseSpeechAudio(pulseSpeechUrl(bridgeUrl, text, endpointId, waitCue), waitCue)
 
-    private fun processRequest(samples: ShortArray, onSpeechChunk: (PulseSpeechAudio) -> Unit): PulseVoiceResult {
+    private fun processRequest(samples: ShortArray, onTranscript: (String) -> Unit, onSpeechChunk: (PulseSpeechAudio) -> Unit): PulseVoiceResult {
         val stt = postBytes(pulseAudioPath(endpointId, detectedWakeWord), wavBytes(samples), "audio/wav")
         val rawTranscript = stt.optJSONObject("stt")?.optString("text").orEmpty().trim()
         val transcript = PulseWakePhrase.commandAfterDetectedWake(rawTranscript, detectedWakeWord)
         if (transcript.isBlank()) {
             return PulseVoiceResult(transcript, "", true, ignored = true, wakeVerified = true)
         }
+        requestCancellation.get()?.check()
+        onTranscript(transcript)
         // The on-device model has already verified the wake event. Pulse Core
         // owns the same command gate and response routes used by the physical
         // endpoints; do not maintain a second tablet-only routing policy here.
@@ -133,8 +136,7 @@ internal class PulseVoiceClient(
     ): PulseVoiceResult {
         val connection = URL("$bridgeUrl/question-stream").openConnection() as HttpURLConnection
         requestCancellation.get()?.register(connection)
-        var answer = ""
-        var pendingSpeech = ""
+        val delivery = PulseQuestionDelivery()
         var listenAgain = false
         try {
             connection.requestMethod = "POST"
@@ -167,23 +169,27 @@ internal class PulseVoiceClient(
                     if (line.isBlank()) return@forEach
                     val event = JSONObject(line)
                     when (event.optString("type")) {
-                        "chunk" -> {
-                            val chunk = event.optString("answer_chunk").trim()
-                            if (chunk.isNotBlank()) {
-                                answer = listOf(answer, chunk).filter(String::isNotBlank).joinToString(" ")
-                                pendingSpeech = listOf(pendingSpeech, chunk).filter(String::isNotBlank).joinToString(" ")
-                            }
+                        "wait" -> {
+                            val cue = event.optString("cue_text").trim()
+                            if (cue.isNotBlank() && !delivery.finished)
+                                onSpeechChunk(speechSource(cue, waitCue = true))
                         }
+                        "chunk" -> delivery.chunk(event.optString("answer_chunk"))
                         "done" -> {
-                            answer = event.optString("answer", answer).trim()
+                            if (event.optString("status") == "ignored")
+                                return PulseVoiceResult(transcript, "", true, ignored = true, wakeVerified = true)
+                            if (!event.optBoolean("ok", true))
+                                throw IllegalStateException(event.optString("error", "Question stream failed"))
+                            delivery.finish(event.optString("answer"))
                             listenAgain = event.optBoolean("listen_again", false)
                         }
                         "error" -> throw IllegalStateException(event.optString("error", "Question stream failed"))
                     }
                 }
             }
-            if (pendingSpeech.isNotBlank()) onSpeechChunk(speechSource(pendingSpeech))
-            return PulseVoiceResult(transcript, answer, true, wakeVerified = true, continueListening = listenAgain)
+            val speech = delivery.speech()
+            if (speech.isNotBlank()) onSpeechChunk(speechSource(speech))
+            return PulseVoiceResult(transcript, delivery.answer, true, wakeVerified = true, continueListening = listenAgain)
         } finally {
             requestCancellation.get()?.release(connection)
             connection.disconnect()
@@ -329,3 +335,7 @@ private fun pulseIdentityRequest(transcript: String): Boolean {
 internal fun pulseAudioPath(endpointId: String, wakeWord: String): String =
     "/audio?endpoint_id=${URLEncoder.encode(endpointId, Charsets.UTF_8.name())}" +
         "&wake_word=${URLEncoder.encode(wakeWord, Charsets.UTF_8.name())}"
+
+/** Cached cues cannot trigger inference or fallback; normal answers still stream. */
+internal fun pulseSpeechUrl(bridgeUrl: String, text: String, endpointId: String, waitCue: Boolean): String =
+    "$bridgeUrl${pulseTtsPath(text, endpointId)}&" + if (waitCue) "cache_only=true" else "stream=true"

@@ -1,0 +1,5 @@
+{
+  "provenance_apk_sha256": "bad079f8c0c418282c7f8c45abda21cb96dba7883066e661baadfc249af89d64",
+  "file_sha256": "f6d0fc4ef0faee7a5f55a4587e4eba1eb44756f143fa446745387e3e7d93e02c",
+  "reason": "Reuse the exact accepted frontend bytes during Android-only cue/display recovery; retain C++ sources for separately authorized rebuild."
+}

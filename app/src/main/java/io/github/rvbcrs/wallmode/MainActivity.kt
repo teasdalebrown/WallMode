@@ -152,6 +152,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private var voiceHeartbeatJob: Job? = null
     private var voiceMediaPlayer: PulseStreamPlayer? = null
     private var voiceSilentProof = false
+    private var voiceCurrentWaitCue = false
+    private var voiceAnswerQueued = false
+    private var voiceRecognisedTranscript = ""
     private var voicePendingSpeechEnqueues = java.util.concurrent.atomic.AtomicInteger(0)
     private val voiceSpeechQueue = ArrayDeque<PulseSpeechAudio>()
     private var voiceSpeechStreamFinished = false
@@ -601,7 +604,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
     private fun showVoiceState(
         message: String,
-        transcript: String = "",
+        transcript: String = voiceRecognisedTranscript,
         response: String = "",
         failed: Boolean = false,
         autoHideMs: Long = 0L
@@ -635,6 +638,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         voiceRequestCancellation?.cancel()
         val cancellation = PulseVoiceCancellation().also { voiceRequestCancellation = it }
         val generation = ++voiceRequestGeneration
+        voiceRecognisedTranscript = ""
+        voiceAnswerQueued = false
         showVoiceState(getString(R.string.voice_thinking))
         releaseVoiceMediaPlayer()
         voiceSpeechQueue.clear()
@@ -649,7 +654,15 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         voiceRequestJob = scope.launch {
             val outcome = withContext(Dispatchers.IO) {
                 runCatching {
-                    pulseVoiceClient.process(samples, cancellation) { wav ->
+                    pulseVoiceClient.process(samples, cancellation, onTranscript = { transcript ->
+                        mainHandler.post {
+                            if (generation == voiceRequestGeneration) {
+                                voiceRecognisedTranscript = transcript
+                                pulseVoiceTrace.record("transcript_ready")
+                                showVoiceState(getString(R.string.voice_thinking), transcript = transcript)
+                            }
+                        }
+                    }) { wav ->
                         pendingEnqueues.incrementAndGet()
                         mainHandler.post {
                             pendingEnqueues.decrementAndGet()
@@ -670,6 +683,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                         "speech_chunks_played=$voiceSpeechChunksPlayed queued=${voiceSpeechQueue.size}"
                 )
                 if (result.ignored) {
+                    voiceSpeechQueue.clear()
+                    releaseVoiceMediaPlayer()
+                    pulseWakeTrial?.setSpeechInterruptionEnabled(false)
                     hideVoiceOverlay()
                     resumeVoiceAfterDelay()
                     return@onSuccess
@@ -689,6 +705,10 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                     "elapsed_ms=${SystemClock.elapsedRealtime() - requestStarted} error=${error.message}"
                 )
                 Log.e(TAG, "Pulse voice request failed", error)
+                voiceSpeechStreamFinished = true
+                voiceSpeechQueue.clear()
+                releaseVoiceMediaPlayer()
+                pulseWakeTrial?.setSpeechInterruptionEnabled(false)
                 showVoiceState(
                     "Unable to complete request",
                     response = error.message ?: "The request could not be completed",
@@ -702,6 +722,14 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     }
 
     private fun enqueuePulseSpeech(audio: PulseSpeechAudio) {
+        if (audio.waitCue) {
+            if (voiceAnswerQueued || voiceSpeechStreamFinished) return
+        } else {
+            voiceAnswerQueued = true
+            voiceSpeechQueue.removeAll { it.waitCue }
+            if (voiceCurrentWaitCue && voiceMediaPlayer?.hasStarted != true)
+                releaseVoiceMediaPlayer()
+        }
         voiceSpeechQueue.addLast(audio)
         if (voiceMediaPlayer == null) playNextPulseSpeechChunk()
     }
@@ -734,11 +762,13 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         val chunkNumber = voiceSpeechChunksPlayed + 1
         releaseVoiceMediaPlayer()
         val generation = voiceRequestGeneration
-        val player = PulseStreamPlayer(silentProof = voiceSilentProof)
+        voiceCurrentWaitCue = audio.waitCue
+        val player = PulseStreamPlayer(silentProof = voiceSilentProof, optionalCue = audio.waitCue)
         voiceMediaPlayer = player
         player.play(audio.url, started = {
             mainHandler.post {
                 if (generation != voiceRequestGeneration || voiceMediaPlayer !== player) return@post
+                pulseVoiceTrace.record(if (audio.waitCue) "wait_cue_started" else "answer_audio_started")
                 pulseVoiceTrace.record(
                     if (voiceSpeechChunksPlayed == 0) "speech_playback_started" else "speech_playback_chunk_started",
                     "chunk=$chunkNumber progressive=true silent_proof=$voiceSilentProof"
@@ -759,6 +789,12 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         }, failed = { error ->
             mainHandler.post {
                 if (generation != voiceRequestGeneration || voiceMediaPlayer !== player) return@post
+                if (audio.waitCue) {
+                    pulseVoiceTrace.record("wait_cue_skipped", "error=${error.message}")
+                    releaseVoiceMediaPlayer()
+                    playNextPulseSpeechChunk()
+                    return@post
+                }
                 pulseVoiceTrace.record("speech_playback_failed", "error=${error.message}")
                 voiceSpeechQueue.clear()
                 voiceContinueListeningAfterSpeech = false
