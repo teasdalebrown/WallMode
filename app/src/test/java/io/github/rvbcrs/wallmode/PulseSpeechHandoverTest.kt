@@ -52,4 +52,34 @@ class PulseSpeechHandoverTest {
     @Test fun conversationContextUsesAcceptedTenMinutes() {
         assertEquals(600_000L, CHAT_SESSION_MILLIS)
     }
+
+    @Test fun progressRequiresRealTextAndCannotQueueBehindOpening() {
+        val turn = PulseSpeechHandover(); val opening = Any()
+        assertFalse(turn.registerCue(Any(), progress = true) {})
+        assertTrue(turn.registerCue(opening) {})
+        turn.textAvailable()
+        assertFalse(turn.registerCue(Any(), progress = true) {})
+        turn.cueFinished(opening)
+        assertTrue(turn.registerCue(Any(), progress = true) {})
+    }
+
+    @Test fun fastAnswerSuppressesProgressAndLongProgressYieldsImmediately() {
+        val fast = PulseSpeechHandover(); fast.textAvailable(); fast.audioReady()
+        assertFalse(fast.registerCue(Any(), progress = true) {})
+        val slow = PulseSpeechHandover(); slow.textAvailable()
+        val progress = PulsePlaybackGate(); val events = mutableListOf<String>()
+        assertTrue(slow.registerCue(progress, progress = true) { progress.cancel { events.add("progress stopped") } })
+        progress.start { events.add("progress played") }
+        slow.audioReady()
+        PulsePlaybackGate().start { events.add("answer played") }
+        assertEquals(listOf("progress played", "progress stopped", "answer played"), events)
+    }
+
+    @Test fun stopDuringProgressRejectsPendingAnswer() {
+        val turn = PulseSpeechHandover(); turn.textAvailable(); var stopped = false
+        turn.registerCue(Any(), progress = true) { stopped = true }; turn.cancel()
+        assertTrue(stopped)
+        try { turn.audioReady(); fail("Answer became ready after Stop") }
+        catch (_: CancellationException) {}
+    }
 }

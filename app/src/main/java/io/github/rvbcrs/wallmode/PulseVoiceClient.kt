@@ -36,7 +36,7 @@ internal data class PulseVoiceResult(
     val continueListening: Boolean = false
 )
 
-internal data class PulseSpeechAudio(val url: String, val waitCue: Boolean = false)
+internal data class PulseSpeechAudio(val url: String, val waitCue: Boolean = false, val progressCue: Boolean = false, val preparationCue: Boolean = false)
 
 internal class PulseVoiceClient(
     private val endpointId: String = "honor_endpoint",
@@ -68,7 +68,13 @@ internal class PulseVoiceClient(
     }
 
     private fun speechSource(text: String, waitCue: Boolean = false) =
-        PulseSpeechAudio(pulseSpeechUrl(bridgeUrl, text, endpointId, waitCue), waitCue)
+        PulseSpeechAudio(pulseSpeechUrl(bridgeUrl, text, endpointId, waitCue), waitCue,
+            preparationCue = waitCue && detectedWakeWord == "morris" && text in MORRIS_PREPARATION_CUES)
+
+    /** Only the endpoint's text-ready/TTS-pending handover may offer this cue. */
+    fun progressCue(): PulseSpeechAudio? = if (detectedWakeWord == "morris")
+        PulseSpeechAudio(pulseSpeechUrl(bridgeUrl, MORRIS_PROGRESS_CUE, endpointId, true),
+            waitCue = true, progressCue = true) else null
 
     private fun processRequest(samples: ShortArray, onTranscript: (String) -> Unit, onSpeechChunk: (PulseSpeechAudio) -> Unit): PulseVoiceResult {
         val stt = postBytes(pulseAudioPath(endpointId, detectedWakeWord), wavBytes(samples), "audio/wav")
@@ -339,3 +345,9 @@ internal fun pulseAudioPath(endpointId: String, wakeWord: String): String =
 /** Cached cues cannot trigger inference or fallback; normal answers still stream. */
 internal fun pulseSpeechUrl(bridgeUrl: String, text: String, endpointId: String, waitCue: Boolean): String =
     "$bridgeUrl${pulseTtsPath(text, endpointId)}&" + if (waitCue) "cache_only=true" else "stream=true"
+
+internal const val MORRIS_PROGRESS_CUE = "Right… I’ve got it here."
+internal val MORRIS_PREPARATION_CUES = setOf(
+    "Ah… hello… hang on… I’ll have to check that first.",
+    "Ah… right… give me a moment to think that through."
+)

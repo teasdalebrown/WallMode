@@ -156,6 +156,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private var voiceAnswerQueued = false
     private var voicePendingAnswerPlayer: PulseStreamPlayer? = null
     private var voiceSpeechHandover = PulseSpeechHandover()
+    private var voicePreparationCueSeen = false
+    private var voiceProgressCueOffered = false
     private var voiceRecognisedTranscript = ""
     private var voicePendingSpeechEnqueues = java.util.concurrent.atomic.AtomicInteger(0)
     private val voiceSpeechQueue = ArrayDeque<PulseSpeechAudio>()
@@ -653,6 +655,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         voiceSpeechHandover.cancel()
         releasePendingAnswerPlayer()
         voiceSpeechHandover = PulseSpeechHandover()
+        voicePreparationCueSeen = false
+        voiceProgressCueOffered = false
         voiceAnswerQueued = false
         showVoiceState(getString(R.string.voice_thinking))
         releaseVoiceMediaPlayer()
@@ -788,7 +792,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         val generation = voiceRequestGeneration
         val handover = voiceSpeechHandover
         val player = PulseStreamPlayer(silentProof = voiceSilentProof, optionalCue = true)
-        if (!handover.registerCue(player) { player.stop() }) {
+        if (!handover.registerCue(player, audio.progressCue) { player.stop() }) {
             player.release()
             playNextPulseSpeechChunk()
             return
@@ -798,16 +802,18 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         player.play(audio.url, started = {
             mainHandler.post {
                 if (generation != voiceRequestGeneration || voiceMediaPlayer !== player) return@post
-                pulseVoiceTrace.record("wait_cue_started")
+                pulseVoiceTrace.record(if (audio.progressCue) "progress_cue_started" else "wait_cue_started")
                 pulseWakeTrial?.setSpeechInterruptionEnabled(true)
             }
         }, completed = { underruns ->
             mainHandler.post {
                 if (generation != voiceRequestGeneration || voiceMediaPlayer !== player) return@post
                 handover.cueFinished(player)
+                if (audio.preparationCue) voicePreparationCueSeen = true
                 pulseVoiceTrace.record("speech_playback_chunk_finished", "cue=true underruns=$underruns")
                 voiceSpeechChunksPlayed += 1
                 releaseVoiceMediaPlayer()
+                maybePlayProgressCue()
                 playNextPulseSpeechChunk()
             }
         }, failed = { error ->
@@ -827,6 +833,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         val chunkNumber = voiceSpeechChunksPlayed + 1
         val player = PulseStreamPlayer(silentProof = voiceSilentProof)
         voicePendingAnswerPlayer = player
+        handover.textAvailable()
         pulseVoiceTrace.record("answer_text_ready")
         // Start the actual TTS fetch now. An opening may continue independently.
         player.play(audio.url, beforeStart = {
@@ -874,6 +881,15 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                 resumeVoiceAfterDelay()
             }
         })
+        maybePlayProgressCue()
+    }
+
+    /** Real answer text exists and its TTS fetch already started; never timer-driven. */
+    private fun maybePlayProgressCue() {
+        if (!voicePreparationCueSeen || voiceProgressCueOffered ||
+            voicePendingAnswerPlayer == null || voiceMediaPlayer != null) return
+        voiceProgressCueOffered = true
+        pulseVoiceClient.progressCue()?.let(::playOptionalVoiceCue)
     }
 
     private fun releasePendingAnswerPlayer() {

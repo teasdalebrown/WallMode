@@ -663,7 +663,7 @@ cues, concurrent answer preparation, first-PCM answer priority, local Stop durin
 preparation/playback, Annabel/Morris activation, persona forwarding and the
 accepted 600-second conversation window. The existing settings and HOME manifest
 are preserved. Hey Pulse bytes remain for rollback but its detector is inactive.
-No experimental startup buffer, long opening or progress cue is enabled.
+The recovered baseline enabled no experimental startup buffer, long opening or progress cue; the separately reviewed Morris cue integration below extends it.
 
 Recovery is reconstruction from preserved source and patches, not a claim to
 reproduce the installed APK byte for byte. All eight native/model APK entries
@@ -679,3 +679,19 @@ is disposable scratch. Preserve a complete checksum-verified NAS source snapshot
 before future local builds; build caches and temporary checkouts are not source
 preservation. The prior uncommitted SMB checkout and separate staged experiments
 are retained.
+
+
+### Morris preparation cues — 2026-10-04 (prepared, not installed)
+
+Question requests may use two preserved Morris openings (8.875 and 8.192 seconds)
+while the backend worker already prepares the answer. Existing short catalogue
+cues remain for other contexts. A 90-second reservation bounds openings and
+rotation avoids repeating the previous one. Missing cached clips remain silent.
+
+After a long opening completes and actual answer text arrives, Honor starts the
+answer TTS fetch independently. While its PCM is still pending, Honor may play
+the cached 5.291-second “Right… I’ve got it here.” once. A ready answer skips or
+immediately cancels either cue; no timer or full cue duration delays the answer.
+Stop remains active throughout preparation and playback. No startup buffer or
+new synthesis is introduced. The source and rendered cue assets are preserved
+before any future installation; this commit is not an installation record.
