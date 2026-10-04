@@ -16,6 +16,13 @@ internal class PulseStreamPlayer(private val silentProof: Boolean = false, priva
     val hasStarted get() = playbackGate.hasStarted
     @Volatile private var connection: HttpURLConnection? = null
     @Volatile private var track: AudioTrack? = null
+    @Volatile private var diagnosticSampleRate = 0
+    @Volatile private var diagnosticBytesWritten = 0L
+
+    fun playbackDiagnostic(): String {
+        val frames = track?.playbackHeadPosition?.toLong()?.and(0xffffffffL)
+        return "rate=$diagnosticSampleRate played_frames=$frames written_frames=${diagnosticBytesWritten / 2}"
+    }
 
     fun play(url: String, started: () -> Unit, completed: (Int) -> Unit, failed: (Throwable) -> Unit, beforeStart: () -> Unit = {}) {
         Thread({
@@ -54,6 +61,7 @@ internal class PulseStreamPlayer(private val silentProof: Boolean = false, priva
                         .setAudioFormat(AudioFormat.Builder().setSampleRate(rate)
                             .setChannelMask(AudioFormat.CHANNEL_OUT_MONO).setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
                         .setTransferMode(AudioTrack.MODE_STREAM).setBufferSizeInBytes(maxOf(minimum, rate * 2)).build()
+                    diagnosticSampleRate = rate
                     track = player
                     if (silentProof) player.setVolume(0f)
                     checkActive()
@@ -81,6 +89,7 @@ internal class PulseStreamPlayer(private val silentProof: Boolean = false, priva
                             check(written > 0) { "Speech audio output failed: $written" }
                             offset += written
                             bytesWritten += written
+                            diagnosticBytesWritten = bytesWritten
                         }
                         if (!playing) { beforeStart(); playbackGate.start { player.play() }; playing = true; started() }
                         supplyUnderruns = player.underrunCount

@@ -50,7 +50,11 @@ internal class PulseStopDetector(context: Context) : AutoCloseable {
         output = ByteBuffer.allocateDirect(1).order(ByteOrder.nativeOrder())
     }
 
+    var lastTriggerScores: List<Float> = emptyList()
+        private set
+
     fun reset() {
+        lastTriggerScores = emptyList()
         frontend.reset()
         interpreter.resetVariableTensors()
         frames.clear()
@@ -74,7 +78,10 @@ internal class PulseStopDetector(context: Context) : AutoCloseable {
             val raw = output.get().toInt()
             scores.addLast(((if (outputUnsigned) raw and 255 else raw) - outputZero) * outputScale)
             while (scores.size > 5) scores.removeFirst()
-            if (scores.size == 5 && scores.average() >= 170.0 / 255.0) return true
+            if (scores.size == 5 && scores.average() >= 170.0 / 255.0) {
+                lastTriggerScores = scores.toList()
+                return true
+            }
         }
         return false
     }

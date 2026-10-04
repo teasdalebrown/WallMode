@@ -202,6 +202,13 @@ internal class PulseWakeWordTrial(
     }
 
     @Synchronized
+    fun stopDiagnostic(): String =
+        "scores=${stopDetector?.lastTriggerScores?.joinToString(",")} " +
+        "aec_available=${AcousticEchoCanceler.isAvailable()} " +
+        "aec_created=${echoCanceler != null} aec_enabled=${echoCanceler?.enabled} " +
+        "ns_created=${noiseSuppressor != null} ns_enabled=${noiseSuppressor?.enabled}"
+
+    @Synchronized
     private fun processStopChunk(chunk: ShortArray) {
         if (speechInterruptionEnabled && stopDetector?.accepts(chunk) == true) {
             speechInterruptionEnabled = false

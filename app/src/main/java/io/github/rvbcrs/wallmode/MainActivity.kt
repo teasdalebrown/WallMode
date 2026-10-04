@@ -591,7 +591,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                 }
                 PulseWakeTrialEvent.SpeechStarted -> pulseVoiceTrace.record("speech_started")
                 PulseWakeTrialEvent.StopDetected -> {
-                    pulseVoiceTrace.record("local_stop_detected")
+                    pulseVoiceTrace.record("local_stop_detected",
+                        "${pulseWakeTrial?.stopDiagnostic()} " +
+                            "${voiceMediaPlayer?.playbackDiagnostic()} cue=$voiceCurrentWaitCue")
                     cancelPulseVoiceInteraction()
                 }
                 is PulseWakeTrialEvent.AudioCaptured -> {
