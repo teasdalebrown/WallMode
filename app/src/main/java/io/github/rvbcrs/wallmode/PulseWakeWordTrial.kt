@@ -8,6 +8,7 @@ import android.media.MediaRecorder
 import android.media.audiofx.AcousticEchoCanceler
 import android.media.audiofx.NoiseSuppressor
 import android.util.Log
+import android.os.SystemClock
 import org.tensorflow.lite.Interpreter
 import java.io.FileInputStream
 import java.nio.ByteBuffer
@@ -18,7 +19,7 @@ import kotlin.math.roundToInt
 
 internal sealed interface PulseWakeTrialEvent {
     data class Ready(val detail: String) : PulseWakeTrialEvent
-    data class Detected(val probability: Float) : PulseWakeTrialEvent
+    data class Detected(val probability: Float, val wakeWord: String) : PulseWakeTrialEvent
     data object SpeechStarted : PulseWakeTrialEvent
     data class AudioCaptured(val samples: ShortArray) : PulseWakeTrialEvent
     data object NoSpeech : PulseWakeTrialEvent
@@ -27,7 +28,7 @@ internal sealed interface PulseWakeTrialEvent {
 }
 
 /**
- * Phase-one, local-only Hey Pulse proof. This class never retains audio and has
+ * Local alongside-Hey-Pulse persona trial. This class never retains audio and has
  * no network code. It feeds the production Pulse microWakeWord model from the
  * tablet microphone and reports only readiness, detection probability or an
  * actionable local failure.
@@ -38,7 +39,7 @@ internal class PulseWakeWordTrial(
 ) : AutoCloseable {
     companion object {
         private const val TAG = "PulseWakeWordTrial"
-        private const val MODEL = "hey_pulse.tflite"
+        private val MODELS = listOf("annabel", "morris")
         private const val SAMPLE_RATE = 16_000
         private const val CHUNK_SAMPLES = 1_280 // 80 ms
         private const val PROBABILITY_CUTOFF = 0.80f
@@ -55,25 +56,24 @@ internal class PulseWakeWordTrial(
 
     private val applicationContext = context.applicationContext
     private val frontend = MicroFrontend()
-    private var interpreter: Interpreter? = null
+    private data class Detector(
+        val name: String, val interpreter: Interpreter, val inputFrames: Int,
+        val inputScale: Float, val inputZeroPoint: Int,
+        val outputScale: Float, val outputZeroPoint: Int,
+        val input: ByteBuffer, val output: ByteBuffer,
+        val pendingFrames: ArrayDeque<FloatArray> = ArrayDeque(),
+        val recentScores: ArrayDeque<Int> = ArrayDeque()
+    )
+    private val detectors = mutableListOf<Detector>()
     private var stopDetector: PulseStopDetector? = null
     @Volatile private var speechInterruptionEnabled = false
-    private var inputFrames = 0
-    private var inputScale = 1f
-    private var inputZeroPoint = 0
-    private var outputScale = 1f
-    private var outputZeroPoint = 0
-    private var inputBuffer: ByteBuffer? = null
-    private var outputBuffer: ByteBuffer? = null
-    private val pendingFrames = ArrayDeque<FloatArray>()
-    private val recentScores = ArrayDeque<Float>()
     private val preWakeSamples = ArrayDeque<Short>(PRE_WAKE_SAMPLES)
     private val running = AtomicBoolean(false)
     private var audioRecord: AudioRecord? = null
     private var noiseSuppressor: NoiseSuppressor? = null
     private var echoCanceler: AcousticEchoCanceler? = null
     private var captureThread: Thread? = null
-    private var cooldown = 0
+    private var cooldownUntilMillis = 0L
     @Volatile private var capturingCommand = false
     @Volatile private var detectionSuspended = false
     private val commandSamples = ArrayList<Short>(MAX_CAPTURE_SAMPLES)
@@ -84,7 +84,7 @@ internal class PulseWakeWordTrial(
     private var commandPostWakeSamples = 0
 
     init {
-        loadModel()
+        MODELS.forEach(::loadModel)
         runCatching {
             stopDetector = PulseStopDetector(applicationContext)
             Log.i(TAG, "Loaded local Stop model with Waveshare cutoff 170/255 and window 5")
@@ -92,9 +92,10 @@ internal class PulseWakeWordTrial(
             .onFailure { onEvent(PulseWakeTrialEvent.Failed("Local Stop model could not load: ${it.message}")) }
     }
 
-    private fun loadModel() {
+    private fun loadModel(name: String) {
+        val asset = "$name.tflite"
         try {
-            val descriptor = applicationContext.assets.openFd(MODEL)
+            val descriptor = applicationContext.assets.openFd(asset)
             val model = FileInputStream(descriptor.fileDescriptor).channel.use { channel ->
                 channel.map(FileChannel.MapMode.READ_ONLY, descriptor.startOffset, descriptor.declaredLength)
             }
@@ -106,28 +107,26 @@ internal class PulseWakeWordTrial(
             require(shape.size == 3 && shape[0] == 1 && shape[2] == MicroFrontend.FEATURE_SIZE) {
                 "Unexpected model input shape ${shape.joinToString(prefix = "[", postfix = "]")}" 
             }
-            inputFrames = shape[1]
             val inputQuant = input.quantizationParams()
-            inputScale = inputQuant.scale
-            inputZeroPoint = inputQuant.zeroPoint
             val outputQuant = output.quantizationParams()
-            outputScale = outputQuant.scale
-            outputZeroPoint = outputQuant.zeroPoint
-            inputBuffer = ByteBuffer.allocateDirect(inputFrames * MicroFrontend.FEATURE_SIZE)
-                .order(ByteOrder.nativeOrder())
-            outputBuffer = ByteBuffer.allocateDirect(1).order(ByteOrder.nativeOrder())
-            interpreter = loaded
-            Log.i(TAG, "Loaded $MODEL inputFrames=$inputFrames cutoff=$PROBABILITY_CUTOFF")
+            require(input.dataType() == org.tensorflow.lite.DataType.INT8 &&
+                output.dataType() == org.tensorflow.lite.DataType.UINT8) { "Unsupported wake tensor types" }
+            detectors += Detector(name, loaded, shape[1], inputQuant.scale, inputQuant.zeroPoint,
+                outputQuant.scale, outputQuant.zeroPoint,
+                ByteBuffer.allocateDirect(shape[1] * MicroFrontend.FEATURE_SIZE).order(ByteOrder.nativeOrder()),
+                ByteBuffer.allocateDirect(1).order(ByteOrder.nativeOrder()))
+            Log.i(TAG, "Loaded $asset inputFrames=${shape[1]} " +
+                "gate=${if (name == "hey_pulse") "existing0.80/window3" else "native>204/window3"}")
         } catch (error: Exception) {
-            Log.e(TAG, "Unable to load wake model", error)
-            onEvent(PulseWakeTrialEvent.Failed("Wake model could not load: ${error.message}"))
+            Log.e(TAG, "Unable to load wake model $asset", error)
+            onEvent(PulseWakeTrialEvent.Failed("$asset could not load: ${error.message}"))
         }
     }
 
     @SuppressLint("MissingPermission")
     fun start() {
         if (!running.compareAndSet(false, true)) return
-        if (interpreter == null || stopDetector == null || !frontend.isInitialized) {
+        if (MODELS.any { required -> detectors.none { it.name == required } } || stopDetector == null || !frontend.isInitialized) {
             running.set(false)
             onEvent(PulseWakeTrialEvent.Failed("Wake model is unavailable"))
             return
@@ -168,7 +167,7 @@ internal class PulseWakeWordTrial(
             onEvent(PulseWakeTrialEvent.Failed("Microphone recording failed: ${error.message}"))
             return
         }
-        onEvent(PulseWakeTrialEvent.Ready("Local Hey Pulse detection active"))
+        onEvent(PulseWakeTrialEvent.Ready("Local detection active: ${detectors.joinToString { it.name }}"))
         captureThread = Thread({ captureLoop(recorder) }, "pulse-wake-trial").also { it.start() }
     }
 
@@ -212,46 +211,52 @@ internal class PulseWakeWordTrial(
 
     @Synchronized
     private fun processChunk(chunk: ShortArray) {
-        val model = interpreter ?: return
-        val input = inputBuffer ?: return
-        val output = outputBuffer ?: return
         chunk.forEach { sample ->
             preWakeSamples.addLast(sample)
             if (preWakeSamples.size > PRE_WAKE_SAMPLES) preWakeSamples.removeFirst()
         }
-        pendingFrames.addAll(frontend.processSamples(chunk))
-        while (pendingFrames.size >= inputFrames) {
-            input.rewind()
-            repeat(inputFrames) {
-                val frame = pendingFrames.removeFirst()
-                frame.forEach { value ->
-                    val quantized = (value / inputScale).roundToInt() + inputZeroPoint
-                    input.put(quantized.coerceIn(-128, 127).toByte())
+        // One frontend/microphone, independent frame queues and recurrent states.
+        for (frame in frontend.processSamples(chunk)) {
+            for (detector in detectors) {
+                detector.pendingFrames.addLast(frame)
+                if (detector.pendingFrames.size < detector.inputFrames) continue
+                val input = detector.input; val output = detector.output
+                input.rewind()
+                repeat(detector.inputFrames) {
+                    detector.pendingFrames.removeFirst().forEach { value ->
+                        val quantized = if (detector.name == "hey_pulse")
+                            (value / detector.inputScale).roundToInt() + detector.inputZeroPoint
+                        else pulsePersonaFeatureQuantize((value * 25.6f).roundToInt())
+                        input.put(quantized.coerceIn(-128, 127).toByte())
+                    }
                 }
+                input.rewind(); output.rewind()
+                detector.interpreter.run(input, output)
+                output.rewind()
+                handleScore(detector, output.get().toInt() and 0xff)
+                if (capturingCommand) return
             }
-            input.rewind()
-            output.rewind()
-            model.run(input, output)
-            output.rewind()
-            val raw = output.get().toInt() and 0xff
-            handleScore((raw - outputZeroPoint) * outputScale)
-            if (capturingCommand) return
         }
     }
 
-    private fun handleScore(score: Float) {
+    private fun handleScore(detector: Detector, raw: Int) {
         if (detectionSuspended) return
-        if (cooldown > 0) cooldown--
-        recentScores.addLast(score)
-        while (recentScores.size > SLIDING_WINDOW_SIZE) recentScores.removeFirst()
-        if (recentScores.size < SLIDING_WINDOW_SIZE || cooldown > 0) return
-        val average = recentScores.average().toFloat()
-        if (average >= PROBABILITY_CUTOFF) {
-            cooldown = COOLDOWN_INFERENCES
-            recentScores.clear()
+        detector.recentScores.addLast(raw)
+        while (detector.recentScores.size > SLIDING_WINDOW_SIZE) detector.recentScores.removeFirst()
+        if (detector.recentScores.size < SLIDING_WINDOW_SIZE ||
+            SystemClock.elapsedRealtime() < cooldownUntilMillis) return
+        val average = detector.recentScores.average().toFloat()
+        val probability = (average - detector.outputZeroPoint) * detector.outputScale
+        val accepts = if (detector.name == "hey_pulse") probability >= PROBABILITY_CUTOFF
+            else pulsePersonaWakeAccepts(detector.recentScores.toList())
+        if (accepts) {
+            val cooldownMs = if (detector.name == "hey_pulse")
+                COOLDOWN_INFERENCES * detector.inputFrames * MicroFrontend.STEP_SIZE_MS else 2_000
+            cooldownUntilMillis = SystemClock.elapsedRealtime() + cooldownMs
+            detectors.forEach { it.recentScores.clear() }
             beginCommandCapture()
-            Log.i(TAG, "Hey Pulse detected probability=$average")
-            onEvent(PulseWakeTrialEvent.Detected(average))
+            Log.i(TAG, "${detector.name} detected probability=$probability")
+            onEvent(PulseWakeTrialEvent.Detected(probability, detector.name))
         }
     }
 
@@ -310,16 +315,20 @@ internal class PulseWakeWordTrial(
         commandSpeechVisible = false
         commandSilenceSamples = 0
         commandPostWakeSamples = 0
-        recentScores.clear()
-        cooldown = COOLDOWN_INFERENCES
+        detectors.forEach { it.recentScores.clear() }
+        cooldownUntilMillis = SystemClock.elapsedRealtime() + 2_000
     }
 
     @Synchronized
     fun resumeDetection(): Boolean {
         if (!running.get()) return false
+        val remainingCooldown = cooldownUntilMillis
+        // Command capture/playback suspends frontend input. Start fresh session
+        // state instead of replaying a stale wake activation on return to idle.
+        resetDetector()
         detectionSuspended = false
-        recentScores.clear()
-        cooldown = RESUME_COOLDOWN_INFERENCES
+        detectors.forEach { it.recentScores.clear() }
+        cooldownUntilMillis = maxOf(remainingCooldown, SystemClock.elapsedRealtime() + RESUME_COOLDOWN_INFERENCES * 20)
         return true
     }
 
@@ -328,7 +337,7 @@ internal class PulseWakeWordTrial(
         capturingCommand = false
         commandSamples.clear()
         detectionSuspended = true
-        recentScores.clear()
+        detectors.forEach { it.recentScores.clear() }
     }
 
     @Synchronized
@@ -341,10 +350,11 @@ internal class PulseWakeWordTrial(
     @Synchronized
     private fun resetDetector() {
         frontend.reset()
-        interpreter?.resetVariableTensors()
-        pendingFrames.clear()
-        recentScores.clear()
-        cooldown = 0
+        // Variable-tensor reset failed exact parity in the retained scorer.
+        // Fresh instances establish session state; never reset between wake calls.
+        detectors.forEach { it.interpreter.close() }; detectors.clear()
+        MODELS.forEach(::loadModel)
+        cooldownUntilMillis = 0L
         detectionSuspended = false
         capturingCommand = false
         commandSamples.clear()
@@ -384,8 +394,8 @@ internal class PulseWakeWordTrial(
 
     override fun close() {
         stop()
-        interpreter?.close()
-        interpreter = null
+        detectors.forEach { it.interpreter.close() }
+        detectors.clear()
         frontend.close()
         stopDetector?.close()
     }

@@ -43,6 +43,12 @@ internal class PulseVoiceClient(
     private val room: String = "Hall/Kitchen",
     private val bridgeUrl: String = "http://192.168.4.211:3065/api/bridge"
 ) {
+    @Volatile private var detectedWakeWord = "hey_pulse"
+    fun detectedWake(word: String) {
+        require(word in setOf("hey_pulse", "annabel", "morris"))
+        detectedWakeWord = word
+        closeConversation()
+    }
     @Volatile private var chatSessionUntilMillis = 0L
     @Volatile private var promptedFollowupUntilMillis = 0L
     fun closeConversation() { chatSessionUntilMillis = 0L; promptedFollowupUntilMillis = 0L }
@@ -64,9 +70,9 @@ internal class PulseVoiceClient(
     private fun speechSource(text: String) = PulseSpeechAudio("$bridgeUrl${pulseTtsPath(text, endpointId)}&stream=true")
 
     private fun processRequest(samples: ShortArray, onSpeechChunk: (PulseSpeechAudio) -> Unit): PulseVoiceResult {
-        val stt = postBytes("/audio?endpoint_id=${encode(endpointId)}", wavBytes(samples), "audio/wav")
+        val stt = postBytes(pulseAudioPath(endpointId, detectedWakeWord), wavBytes(samples), "audio/wav")
         val rawTranscript = stt.optJSONObject("stt")?.optString("text").orEmpty().trim()
-        val transcript = PulseWakePhrase.commandAfterDetectedWake(rawTranscript)
+        val transcript = PulseWakePhrase.commandAfterDetectedWake(rawTranscript, detectedWakeWord)
         if (transcript.isBlank()) {
             return PulseVoiceResult(transcript, "", true, ignored = true, wakeVerified = true)
         }
@@ -191,7 +197,7 @@ internal class PulseVoiceClient(
                 .put("endpoint_type", "android_wall_tablet")
                 .put("role", "pulse-wall-voice-endpoint").put("transport", "android-native")
                 .put("wake_word_engine", "microWakeWord")
-                .put("active_wake_words", JSONArray().put("hey_pulse").put("stop"))
+                .put("active_wake_words", JSONArray().put("annabel").put("morris").put("stop"))
                 .put("capabilities", JSONArray().put("local-wake-word").put("local-stop-interruption").put("audio").put("transcript").put("tts").put("visual-response"))
         )
     }
@@ -319,3 +325,7 @@ private fun pulseIdentityRequest(transcript: String): Boolean {
         "please introduce your self"
     )
 }
+
+internal fun pulseAudioPath(endpointId: String, wakeWord: String): String =
+    "/audio?endpoint_id=${URLEncoder.encode(endpointId, Charsets.UTF_8.name())}" +
+        "&wake_word=${URLEncoder.encode(wakeWord, Charsets.UTF_8.name())}"

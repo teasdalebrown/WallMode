@@ -49,8 +49,13 @@ internal object PulseWakePhrase {
      * called. Strip only the observed STT renderings of that wake phrase and
      * leave command acceptance to Pulse Core's shared endpoint gate.
      */
-    fun commandAfterDetectedWake(value: String): String {
+    fun commandAfterDetectedWake(value: String, wakeWord: String = "hey_pulse"): String {
         val raw = value.trim()
+        val name = when (wakeWord) { "annabel" -> "annabel(?:le)?"; "morris" -> "morris"; else -> null }
+        if (name != null) {
+            val prefix = Regex("^(?:hey[, ]+)?$name(?:[\\s,.:;!?-]+|$)", RegexOption.IGNORE_CASE)
+            prefix.find(raw)?.let { return raw.substring(it.range.last + 1).trim() }
+        }
         val compact = raw.replace(Regex("[.?!]+$"), "").trim()
         detectedWakePrefix.matchEntire(compact)?.groupValues?.get(1)?.trim()?.let { return repairObservedCommandStart(it) }
         val command = establishedCommand.find(compact) ?: return raw

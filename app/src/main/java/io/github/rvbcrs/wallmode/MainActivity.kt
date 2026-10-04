@@ -561,11 +561,11 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                 is PulseWakeTrialEvent.Ready -> Log.i(TAG, event.detail)
                 is PulseWakeTrialEvent.Detected -> {
                     // A new wake is not a reply to an earlier chat prompt.
-                    pulseVoiceClient.closeConversation()
-                    Log.i(TAG, "Hey Pulse detected at ${(event.probability * 100).roundToInt()}%")
+                    pulseVoiceClient.detectedWake(event.wakeWord)
+                    Log.i(TAG, "${event.wakeWord} detected at ${(event.probability * 100).roundToInt()}%")
                     pulseVoiceTrace.record(
                         "wake_detected",
-                        "probability=${event.probability}"
+                        "wake_word=${event.wakeWord} probability=${event.probability}"
                     )
                     // Voice wake is also an intentional display wake. Restore
                     // the already-loaded dashboard beneath the native Voice
