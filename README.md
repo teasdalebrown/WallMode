@@ -653,3 +653,29 @@ WallMode is based on [KioskZen](https://github.com/exraaaa/KioskZen). The inheri
 Because WallMode uses a new application ID, it installs alongside KioskZen rather than upgrading it in place. Existing KioskZen settings are not migrated automatically.
 
 WallMode is distributed under the [GNU General Public License v3.0](LICENSE).
+
+
+### Honor source recovery — 2026-10-04
+
+The recovered ordinary Voice baseline is source-controlled on
+`codex/honor-wall-tablet`. It retains early transcript display, cache-only wait
+cues, concurrent answer preparation, first-PCM answer priority, local Stop during
+preparation/playback, Annabel/Morris activation, persona forwarding and the
+accepted 600-second conversation window. The existing settings and HOME manifest
+are preserved. Hey Pulse bytes remain for rollback but its detector is inactive.
+No experimental startup buffer, long opening or progress cue is enabled.
+
+Recovery is reconstruction from preserved source and patches, not a claim to
+reproduce the installed APK byte for byte. All eight native/model APK entries
+were verified against preserved ordinary APK `bad079f8...`; independent source
+review and 94 JVM tests passed, and offline debug assembly succeeded. No device
+installation, playback or production deployment was performed.
+
+Complete source snapshots, checksums and validation evidence are preserved on
+the healthy NAS under
+`/volume1/pulse_life/voice-training/morris-cues-20261004/baseline-recovery-verification`.
+The corresponding `/mnt/pulse-coldstore/staging/morris-cues-20261004` Core copy
+is disposable scratch. Preserve a complete checksum-verified NAS source snapshot
+before future local builds; build caches and temporary checkouts are not source
+preservation. The prior uncommitted SMB checkout and separate staged experiments
+are retained.

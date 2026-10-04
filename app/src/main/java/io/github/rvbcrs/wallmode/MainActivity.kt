@@ -154,6 +154,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private var voiceSilentProof = false
     private var voiceCurrentWaitCue = false
     private var voiceAnswerQueued = false
+    private var voicePendingAnswerPlayer: PulseStreamPlayer? = null
+    private var voiceSpeechHandover = PulseSpeechHandover()
     private var voiceRecognisedTranscript = ""
     private var voicePendingSpeechEnqueues = java.util.concurrent.atomic.AtomicInteger(0)
     private val voiceSpeechQueue = ArrayDeque<PulseSpeechAudio>()
@@ -415,6 +417,12 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             batteryReceiverRegistered = false
         }
         pulseWakeTrial?.stop()
+        pulseWakeTrial?.setSpeechInterruptionEnabled(false)
+        ++voiceRequestGeneration
+        voiceRequestCancellation?.cancel()
+        voiceSpeechHandover.cancel()
+        releasePendingAnswerPlayer()
+        voiceSpeechQueue.clear()
         voiceRequestJob?.cancel()
         voiceRequestJob = null
         voiceHeartbeatJob?.cancel()
@@ -475,6 +483,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         pulsePlayerReturnRunnable = null
         pulseWakeTrial?.close()
         pulseWakeTrial = null
+        voiceRequestCancellation?.cancel()
+        voiceSpeechHandover.cancel()
+        releasePendingAnswerPlayer()
         releaseVoiceMediaPlayer()
         bannerOverlay.dispose()
         announcementSpeaker.shutdown()
@@ -639,6 +650,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         val cancellation = PulseVoiceCancellation().also { voiceRequestCancellation = it }
         val generation = ++voiceRequestGeneration
         voiceRecognisedTranscript = ""
+        voiceSpeechHandover.cancel()
+        releasePendingAnswerPlayer()
+        voiceSpeechHandover = PulseSpeechHandover()
         voiceAnswerQueued = false
         showVoiceState(getString(R.string.voice_thinking))
         releaseVoiceMediaPlayer()
@@ -650,6 +664,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         voicePendingSpeechEnqueues = pendingEnqueues
         val requestStarted = SystemClock.elapsedRealtime()
         pulseVoiceTrace.record("request_started")
+        // Stop stays local and available while STT, routing and TTS prepare.
+        pulseWakeTrial?.setSpeechInterruptionEnabled(true)
         voiceRequestJob?.cancel()
         voiceRequestJob = scope.launch {
             val outcome = withContext(Dispatchers.IO) {
@@ -683,7 +699,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                         "speech_chunks_played=$voiceSpeechChunksPlayed queued=${voiceSpeechQueue.size}"
                 )
                 if (result.ignored) {
+                    voiceSpeechHandover.cancel()
                     voiceSpeechQueue.clear()
+                    releasePendingAnswerPlayer()
                     releaseVoiceMediaPlayer()
                     pulseWakeTrial?.setSpeechInterruptionEnabled(false)
                     hideVoiceOverlay()
@@ -696,9 +714,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                     transcript = result.transcript,
                     response = "",
                     failed = !result.ok,
-                    autoHideMs = if (voiceMediaPlayer == null && voiceSpeechQueue.isEmpty() && pendingEnqueues.get() == 0) 5_000L else 0L
+                    autoHideMs = if (voiceMediaPlayer == null && voicePendingAnswerPlayer == null && voiceSpeechQueue.isEmpty() && pendingEnqueues.get() == 0) 5_000L else 0L
                 )
-                if (voiceMediaPlayer == null && voiceSpeechQueue.isEmpty() && pendingEnqueues.get() == 0) finishPulseSpeech()
+                if (voiceMediaPlayer == null && voicePendingAnswerPlayer == null && voiceSpeechQueue.isEmpty() && pendingEnqueues.get() == 0) finishPulseSpeech()
             }.onFailure { error ->
                 pulseVoiceTrace.record(
                     "request_failed",
@@ -706,7 +724,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                 )
                 Log.e(TAG, "Pulse voice request failed", error)
                 voiceSpeechStreamFinished = true
+                voiceSpeechHandover.cancel()
                 voiceSpeechQueue.clear()
+                releasePendingAnswerPlayer()
                 releaseVoiceMediaPlayer()
                 pulseWakeTrial?.setSpeechInterruptionEnabled(false)
                 showVoiceState(
@@ -727,15 +747,13 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         } else {
             voiceAnswerQueued = true
             voiceSpeechQueue.removeAll { it.waitCue }
-            if (voiceCurrentWaitCue && voiceMediaPlayer?.hasStarted != true)
-                releaseVoiceMediaPlayer()
         }
         voiceSpeechQueue.addLast(audio)
-        if (voiceMediaPlayer == null) playNextPulseSpeechChunk()
+        playNextPulseSpeechChunk()
     }
 
     private fun finishPulseSpeech() {
-        if (!pulseSpeechMayFinish(voiceSpeechStreamFinished, voiceMediaPlayer != null,
+        if (!pulseSpeechMayFinish(voiceSpeechStreamFinished, voiceMediaPlayer != null || voicePendingAnswerPlayer != null,
                 voiceSpeechQueue.size, voicePendingSpeechEnqueues.get())) return
         pulseWakeTrial?.setSpeechInterruptionEnabled(false)
         pulseVoiceTrace.record("speech_playback_finished", "chunks=$voiceSpeechChunksPlayed")
@@ -755,33 +773,39 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     }
 
     private fun playNextPulseSpeechChunk() {
-        val audio = voiceSpeechQueue.removeFirstOrNull() ?: run {
+        if (voicePendingAnswerPlayer != null) return
+        if (voiceMediaPlayer != null && !voiceCurrentWaitCue) return
+        val audio = voiceSpeechQueue.firstOrNull() ?: run {
             finishPulseSpeech()
             return
         }
-        val chunkNumber = voiceSpeechChunksPlayed + 1
-        releaseVoiceMediaPlayer()
+        if (audio.waitCue && voiceMediaPlayer != null) return
+        voiceSpeechQueue.removeFirst()
+        if (audio.waitCue) playOptionalVoiceCue(audio) else prepareAnswerSpeech(audio)
+    }
+
+    private fun playOptionalVoiceCue(audio: PulseSpeechAudio) {
         val generation = voiceRequestGeneration
-        voiceCurrentWaitCue = audio.waitCue
-        val player = PulseStreamPlayer(silentProof = voiceSilentProof, optionalCue = audio.waitCue)
+        val handover = voiceSpeechHandover
+        val player = PulseStreamPlayer(silentProof = voiceSilentProof, optionalCue = true)
+        if (!handover.registerCue(player) { player.stop() }) {
+            player.release()
+            playNextPulseSpeechChunk()
+            return
+        }
+        voiceCurrentWaitCue = true
         voiceMediaPlayer = player
         player.play(audio.url, started = {
             mainHandler.post {
                 if (generation != voiceRequestGeneration || voiceMediaPlayer !== player) return@post
-                pulseVoiceTrace.record(if (audio.waitCue) "wait_cue_started" else "answer_audio_started")
-                pulseVoiceTrace.record(
-                    if (voiceSpeechChunksPlayed == 0) "speech_playback_started" else "speech_playback_chunk_started",
-                    "chunk=$chunkNumber progressive=true silent_proof=$voiceSilentProof"
-                )
+                pulseVoiceTrace.record("wait_cue_started")
                 pulseWakeTrial?.setSpeechInterruptionEnabled(true)
             }
         }, completed = { underruns ->
             mainHandler.post {
                 if (generation != voiceRequestGeneration || voiceMediaPlayer !== player) return@post
-                pulseVoiceTrace.record(
-                    "speech_playback_chunk_finished",
-                    "chunk=$chunkNumber underruns=$underruns"
-                )
+                handover.cueFinished(player)
+                pulseVoiceTrace.record("speech_playback_chunk_finished", "cue=true underruns=$underruns")
                 voiceSpeechChunksPlayed += 1
                 releaseVoiceMediaPlayer()
                 playNextPulseSpeechChunk()
@@ -789,23 +813,77 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         }, failed = { error ->
             mainHandler.post {
                 if (generation != voiceRequestGeneration || voiceMediaPlayer !== player) return@post
-                if (audio.waitCue) {
-                    pulseVoiceTrace.record("wait_cue_skipped", "error=${error.message}")
-                    releaseVoiceMediaPlayer()
-                    playNextPulseSpeechChunk()
-                    return@post
-                }
+                handover.cueFinished(player)
+                pulseVoiceTrace.record("wait_cue_skipped", "error=${error.message}")
+                releaseVoiceMediaPlayer()
+                playNextPulseSpeechChunk()
+            }
+        })
+    }
+
+    private fun prepareAnswerSpeech(audio: PulseSpeechAudio) {
+        val generation = voiceRequestGeneration
+        val handover = voiceSpeechHandover
+        val chunkNumber = voiceSpeechChunksPlayed + 1
+        val player = PulseStreamPlayer(silentProof = voiceSilentProof)
+        voicePendingAnswerPlayer = player
+        pulseVoiceTrace.record("answer_text_ready")
+        // Start the actual TTS fetch now. An opening may continue independently.
+        player.play(audio.url, beforeStart = {
+            // Invoked after the first complete PCM write, before AudioTrack.play.
+            // Cancel/flush any optional cue directly; never await its duration.
+            handover.audioReady()
+            val readyAt = SystemClock.elapsedRealtime()
+            mainHandler.post {
+                if (generation == voiceRequestGeneration)
+                    pulseVoiceTrace.record("answer_pcm_ready", "elapsed_realtime_ms=$readyAt")
+            }
+        }, started = {
+            mainHandler.post {
+                if (generation != voiceRequestGeneration || voicePendingAnswerPlayer !== player) return@post
+                if (voiceCurrentWaitCue) pulseVoiceTrace.record("cue_cancelled_for_answer")
+                releaseVoiceMediaPlayer()
+                voicePendingAnswerPlayer = null
+                voiceMediaPlayer = player
+                voiceCurrentWaitCue = false
+                pulseVoiceTrace.record("answer_audio_started")
+                pulseVoiceTrace.record("speech_playback_chunk_started",
+                    "chunk=$chunkNumber progressive=true silent_proof=$voiceSilentProof")
+                pulseWakeTrial?.setSpeechInterruptionEnabled(true)
+            }
+        }, completed = { underruns ->
+            mainHandler.post {
+                if (generation != voiceRequestGeneration || voiceMediaPlayer !== player) return@post
+                pulseVoiceTrace.record("speech_playback_chunk_finished", "chunk=$chunkNumber underruns=$underruns")
+                voiceSpeechChunksPlayed += 1
+                releaseVoiceMediaPlayer()
+                playNextPulseSpeechChunk()
+            }
+        }, failed = { error ->
+            mainHandler.post {
+                if (generation != voiceRequestGeneration ||
+                    (voiceMediaPlayer !== player && voicePendingAnswerPlayer !== player)) return@post
                 pulseVoiceTrace.record("speech_playback_failed", "error=${error.message}")
+                voiceSpeechHandover.cancel()
                 voiceSpeechQueue.clear()
                 voiceContinueListeningAfterSpeech = false
+                releasePendingAnswerPlayer()
                 releaseVoiceMediaPlayer()
+                pulseWakeTrial?.setSpeechInterruptionEnabled(false)
                 showVoiceState("Playback failed", failed = true, autoHideMs = 5_000L)
                 resumeVoiceAfterDelay()
             }
         })
     }
 
+    private fun releasePendingAnswerPlayer() {
+        voicePendingAnswerPlayer?.release()
+        voicePendingAnswerPlayer = null
+    }
+
     private fun cancelPulseVoiceInteraction(preserveCapture: Boolean = false) {
+        voiceSpeechHandover.cancel()
+        releasePendingAnswerPlayer()
         pulseWakeTrial?.setSpeechInterruptionEnabled(false)
         pulseVoiceClient.closeConversation()
         ++voiceRequestGeneration
@@ -863,6 +941,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             player.release()
         }
         voiceMediaPlayer = null
+        voiceCurrentWaitCue = false
     }
 
     private fun hideVoiceOverlay() {

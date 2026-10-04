@@ -308,7 +308,7 @@ internal fun pulseCompleteSpeechChunks(text: String): List<String> {
     return chunks
 }
 
-private const val CHAT_SESSION_MILLIS = 5 * 60 * 1000L
+internal const val CHAT_SESSION_MILLIS = 10 * 60 * 1000L
 private val CHAT_CLOSE_COMMANDS = setOf("stop", "end chat", "close chat", "exit chat", "stop chat", "goodbye")
 
 private val QUESTION_STREAM_DOMAIN = Regex(

@@ -17,7 +17,7 @@ internal class PulseStreamPlayer(private val silentProof: Boolean = false, priva
     @Volatile private var connection: HttpURLConnection? = null
     @Volatile private var track: AudioTrack? = null
 
-    fun play(url: String, started: () -> Unit, completed: (Int) -> Unit, failed: (Throwable) -> Unit) {
+    fun play(url: String, started: () -> Unit, completed: (Int) -> Unit, failed: (Throwable) -> Unit, beforeStart: () -> Unit = {}) {
         Thread({
             try {
                 val http = URL(url).openConnection() as HttpURLConnection
@@ -82,7 +82,7 @@ internal class PulseStreamPlayer(private val silentProof: Boolean = false, priva
                             offset += written
                             bytesWritten += written
                         }
-                        if (!playing) { playbackGate.start { player.play() }; playing = true; started() }
+                        if (!playing) { beforeStart(); playbackGate.start { player.play() }; playing = true; started() }
                         supplyUnderruns = player.underrunCount
                         remaining -= count
                     }
