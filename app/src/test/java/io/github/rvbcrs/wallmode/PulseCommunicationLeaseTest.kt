@@ -32,4 +32,12 @@ class PulseCommunicationLeaseTest {
         val lease=PulseCommunicationLease(0,3,{ if(it==3) throw SecurityException("denied"); mode=it },{e,r -> if(!e && r) ordinary=true; true})
         assertFalse(lease.enter()); assertEquals(0,mode); assertTrue(ordinary)
     }
+    @Test fun successiveSpeechChunksKeepOneRecorderAndClosedTurnCannotReenter() {
+        var modes=0; var communicationStarts=0
+        val lease=PulseCommunicationLease(0,3,{modes++},{e,r -> if(e && r) communicationStarts++; true})
+        repeat(4) { assertTrue(lease.enter()) }
+        assertEquals(1,modes); assertEquals(1,communicationStarts)
+        lease.close(true); assertFalse(lease.enter())
+        assertEquals(2,modes); assertEquals(1,communicationStarts)
+    }
 }

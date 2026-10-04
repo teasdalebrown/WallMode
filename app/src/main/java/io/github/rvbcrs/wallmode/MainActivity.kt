@@ -152,7 +152,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private var voiceHeartbeatJob: Job? = null
     private var voiceMediaPlayer: PulseStreamPlayer? = null
     private var voiceSilentProof = false
-    private var debugCommunicationLease: PulseCommunicationLease? = null
+    private var voiceCommunicationLease: PulseCommunicationLease? = null
     private var voiceCurrentWaitCue = false
     private var voiceAnswerQueued = false
     private var voicePendingAnswerPlayer: PulseStreamPlayer? = null
@@ -383,19 +383,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             .joinToString("") { "%02x".format(it) }
         require(hash == "666a9ab0da2fbc643bbc468c11e0de5047e99f7c5605a4e8fdd81dfa355ae6ae")
         cancelPulseVoiceInteraction(preserveCapture = true)
-        if (communication) {
-            val manager = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
-            val previousMode = manager.mode
-            val lease = PulseCommunicationLease(previousMode, android.media.AudioManager.MODE_IN_COMMUNICATION,
-                { manager.mode = it; check(manager.mode == it) { "Audio mode change unavailable" } }, { enabled, resume -> pulseWakeTrial?.setCommunicationCapture(enabled, resume) == true })
-            debugCommunicationLease = lease
-            if (runCatching { lease.enter() }.getOrDefault(false) != true) {
-                restoreDebugCommunication(true)
-                pulseVoiceTrace.record("debug_communication_unavailable")
-                resumeVoiceAfterDelay()
-                return
-            }
-            pulseVoiceTrace.record("debug_communication_entered", "previous_mode=$previousMode mode=${manager.mode}")
+        if (communication && !ensureVoiceCommunication()) {
+            resumeVoiceAfterDelay()
+            return
         }
         pulseWakeTrial?.suspendDetection()
         voiceSilentProof = silent
@@ -413,13 +403,31 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         enqueuePulseSpeech(PulseSpeechAudio(url = "", fixedDebugWav = wav, communicationDiagnostic = communication))
     }
 
-    private fun restoreDebugCommunication(resumeCapture: Boolean) {
-        val lease = debugCommunicationLease ?: return
-        debugCommunicationLease = null
-        runCatching { lease.close(resumeCapture) }
-            .onFailure { pulseVoiceTrace.record("debug_communication_restore_failed", it.javaClass.simpleName) }
+    private fun ensureVoiceCommunication(): Boolean {
+        if (voiceCommunicationLease != null) return true
         val manager = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
-        pulseVoiceTrace.record("debug_communication_restored", "mode=${manager.mode} ${pulseWakeTrial?.stopDiagnostic()}")
+        val previousMode = manager.mode
+        val lease = PulseCommunicationLease(previousMode, android.media.AudioManager.MODE_IN_COMMUNICATION,
+            { manager.mode = it; check(manager.mode == it) { "Audio mode change unavailable" } },
+            { enabled, resume -> pulseWakeTrial?.setCommunicationCapture(enabled, resume) == true })
+        voiceCommunicationLease = lease
+        if (runCatching { lease.enter() }.getOrDefault(false) != true) {
+            restoreVoiceCommunication(true)
+            pulseVoiceTrace.record("communication_profile_unavailable")
+            return false
+        }
+        pulseWakeTrial?.suspendDetection()
+        pulseVoiceTrace.record("communication_profile_entered", "previous_mode=$previousMode mode=${manager.mode}")
+        return true
+    }
+
+    private fun restoreVoiceCommunication(resumeCapture: Boolean) {
+        val lease = voiceCommunicationLease ?: return
+        voiceCommunicationLease = null
+        runCatching { lease.close(resumeCapture) }
+            .onFailure { pulseVoiceTrace.record("communication_profile_restore_failed", it.javaClass.simpleName) }
+        val manager = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+        pulseVoiceTrace.record("communication_profile_restored", "mode=${manager.mode} ${pulseWakeTrial?.stopDiagnostic()}")
     }
 
     override fun onResume() {
@@ -482,7 +490,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         voiceHeartbeatJob?.cancel()
         voiceHeartbeatJob = null
         releaseVoiceMediaPlayer()
-        restoreDebugCommunication(false)
+        restoreVoiceCommunication(false)
         ambientDimRunnable?.let(mainHandler::removeCallbacks)
         ambientDimRunnable = null
         if (pendingStartupCameraPermissionRequest && autoDiscoveryJob?.isActive == true) {
@@ -542,6 +550,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         voiceSpeechHandover.cancel()
         releasePendingAnswerPlayer()
         releaseVoiceMediaPlayer()
+        restoreVoiceCommunication(false)
         bannerOverlay.dispose()
         announcementSpeaker.shutdown()
         autoDiscoveryJob?.cancel()
@@ -763,6 +772,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                     releasePendingAnswerPlayer()
                     releaseVoiceMediaPlayer()
                     pulseWakeTrial?.setSpeechInterruptionEnabled(false)
+                    restoreVoiceCommunication(true)
                     hideVoiceOverlay()
                     resumeVoiceAfterDelay()
                     return@onSuccess
@@ -788,6 +798,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                 releasePendingAnswerPlayer()
                 releaseVoiceMediaPlayer()
                 pulseWakeTrial?.setSpeechInterruptionEnabled(false)
+                restoreVoiceCommunication(true)
                 showVoiceState(
                     "Unable to complete request",
                     response = error.message ?: "The request could not be completed",
@@ -817,7 +828,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         pulseWakeTrial?.setSpeechInterruptionEnabled(false)
         pulseVoiceTrace.record("speech_playback_finished", "chunks=$voiceSpeechChunksPlayed")
         voiceSilentProof = false
-        restoreDebugCommunication(true)
+        restoreVoiceCommunication(true)
         if (voiceContinueListeningAfterSpeech) {
             voiceContinueListeningAfterSpeech = false
             pulseVoiceClient.openPromptedFollowup()
@@ -841,6 +852,13 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             return
         }
         if (audio.waitCue && voiceMediaPlayer != null) return
+        // One lease spans opening, answer handover and all speech chunks.
+        // Debug fixed speech retains its explicit comparison profile.
+        if (audio.fixedDebugWav == null && !ensureVoiceCommunication()) {
+            cancelPulseVoiceInteraction()
+            showVoiceState("Speech audio unavailable", failed = true, autoHideMs = 5_000L)
+            return
+        }
         voiceSpeechQueue.removeFirst()
         if (audio.waitCue) playOptionalVoiceCue(audio) else prepareAnswerSpeech(audio)
     }
@@ -856,7 +874,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         }
         voiceCurrentWaitCue = true
         voiceMediaPlayer = player
-        player.play(audio.url, started = {
+        player.play(audio.url, communicationDiagnostic = voiceCommunicationLease != null, started = {
             mainHandler.post {
                 if (generation != voiceRequestGeneration || voiceMediaPlayer !== player) return@post
                 pulseVoiceTrace.record(if (audio.progressCue) "progress_cue_started" else "wait_cue_started")
@@ -893,7 +911,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         handover.textAvailable()
         pulseVoiceTrace.record("answer_text_ready")
         // Start the actual TTS fetch now. An opening may continue independently.
-        player.play(audio.url, fixedDebugWav = audio.fixedDebugWav, communicationDiagnostic = audio.communicationDiagnostic, beforeStart = {
+        player.play(audio.url, fixedDebugWav = audio.fixedDebugWav, communicationDiagnostic = voiceCommunicationLease != null, beforeStart = {
             // Invoked after the first complete PCM write, before AudioTrack.play.
             // Cancel/flush any optional cue directly; never await its duration.
             handover.audioReady()
@@ -935,7 +953,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                 releaseVoiceMediaPlayer()
                 pulseWakeTrial?.setSpeechInterruptionEnabled(false)
                 voiceSilentProof = false
-                restoreDebugCommunication(true)
+                restoreVoiceCommunication(true)
                 showVoiceState("Playback failed", failed = true, autoHideMs = 5_000L)
                 resumeVoiceAfterDelay()
             }
@@ -969,7 +987,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         voiceRequestJob = null
         if (!preserveCapture) pulseWakeTrial?.cancelCommandCapture()
         releaseVoiceMediaPlayer()
-        restoreDebugCommunication(true)
+        restoreVoiceCommunication(true)
         voiceSpeechQueue.clear()
         voiceSpeechStreamFinished = true
         voiceContinueListeningAfterSpeech = false
