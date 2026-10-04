@@ -203,7 +203,7 @@ internal class PulseWakeWordTrial(
 
     @Synchronized
     fun stopDiagnostic(): String =
-        "scores=${stopDetector?.lastTriggerScores?.joinToString(",")} " +
+        "stop_armed=$speechInterruptionEnabled scores=${stopDetector?.lastTriggerScores?.joinToString(",")} " +
         "aec_available=${AcousticEchoCanceler.isAvailable()} " +
         "aec_created=${echoCanceler != null} aec_enabled=${echoCanceler?.enabled} " +
         "ns_created=${noiseSuppressor != null} ns_enabled=${noiseSuppressor?.enabled}"

@@ -346,11 +346,16 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             pulseVoiceTrace.record("debug_cancel")
             return
         }
+        if (intent.getBooleanExtra("pulse_debug_fixed_stop", false)) {
+            playFixedStopDiagnostic(intent.getBooleanExtra("pulse_debug_silent", false))
+            return
+        }
         if (!intent.getBooleanExtra("pulse_debug_replay", false)) return
-        voiceSilentProof = intent.getBooleanExtra("pulse_debug_silent", false)
+        val replaySilent = intent.getBooleanExtra("pulse_debug_silent", false)
         val evidence = File(filesDir, "pulse_debug_replay.wav")
         if (!evidence.isFile) return
         cancelPulseVoiceInteraction(preserveCapture = true)
+        voiceSilentProof = replaySilent
         pulseWakeTrial?.suspendDetection()
         val bytes = evidence.readBytes()
         val buffer = ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)
@@ -369,6 +374,28 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             require(size >= 0)
             position += 8 + size + size % 2
         }
+    }
+
+    private fun playFixedStopDiagnostic(silent: Boolean) {
+        val wav = assets.open("pulse_stop_fixed.wav").use { it.readBytes() }
+        val hash = java.security.MessageDigest.getInstance("SHA-256").digest(wav)
+            .joinToString("") { "%02x".format(it) }
+        require(hash == "666a9ab0da2fbc643bbc468c11e0de5047e99f7c5605a4e8fdd81dfa355ae6ae")
+        cancelPulseVoiceInteraction(preserveCapture = true)
+        pulseWakeTrial?.suspendDetection()
+        voiceSilentProof = silent
+        voiceSpeechHandover = PulseSpeechHandover()
+        voicePreparationCueSeen = false
+        voiceProgressCueOffered = false
+        voiceAnswerQueued = false
+        voiceSpeechChunksPlayed = 0
+        voicePendingSpeechEnqueues = java.util.concurrent.atomic.AtomicInteger(0)
+        voiceContinueListeningAfterSpeech = false
+        voiceSpeechStreamFinished = true
+        showVoiceState("Fixed Stop diagnostic")
+        pulseWakeTrial?.setSpeechInterruptionEnabled(true)
+        pulseVoiceTrace.record("debug_fixed_stop_started", "sha256=$hash silent=$silent ${pulseWakeTrial?.stopDiagnostic()}")
+        enqueuePulseSpeech(PulseSpeechAudio(url = "", fixedDebugWav = wav))
     }
 
     override fun onResume() {
@@ -413,6 +440,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
     override fun onPause() {
         super.onPause()
+        voiceSilentProof = false
         if (webViewConfigured) binding.webView.onPause()
         if (batteryReceiverRegistered) {
             unregisterReceiver(batteryStatusReceiver)
@@ -763,6 +791,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                 voiceSpeechQueue.size, voicePendingSpeechEnqueues.get())) return
         pulseWakeTrial?.setSpeechInterruptionEnabled(false)
         pulseVoiceTrace.record("speech_playback_finished", "chunks=$voiceSpeechChunksPlayed")
+        voiceSilentProof = false
         if (voiceContinueListeningAfterSpeech) {
             voiceContinueListeningAfterSpeech = false
             pulseVoiceClient.openPromptedFollowup()
@@ -838,7 +867,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         handover.textAvailable()
         pulseVoiceTrace.record("answer_text_ready")
         // Start the actual TTS fetch now. An opening may continue independently.
-        player.play(audio.url, beforeStart = {
+        player.play(audio.url, fixedDebugWav = audio.fixedDebugWav, beforeStart = {
             // Invoked after the first complete PCM write, before AudioTrack.play.
             // Cancel/flush any optional cue directly; never await its duration.
             handover.audioReady()
@@ -879,6 +908,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                 releasePendingAnswerPlayer()
                 releaseVoiceMediaPlayer()
                 pulseWakeTrial?.setSpeechInterruptionEnabled(false)
+                voiceSilentProof = false
                 showVoiceState("Playback failed", failed = true, autoHideMs = 5_000L)
                 resumeVoiceAfterDelay()
             }
@@ -900,6 +930,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     }
 
     private fun cancelPulseVoiceInteraction(preserveCapture: Boolean = false) {
+        voiceSilentProof = false
         voiceSpeechHandover.cancel()
         releasePendingAnswerPlayer()
         pulseWakeTrial?.setSpeechInterruptionEnabled(false)
@@ -919,10 +950,11 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     }
 
     private fun resumeVoiceAfterDelay(delayMs: Long = 2_500L) {
+        val generation = voiceRequestGeneration
         resetAmbientTimer()
         pulseVoiceTrace.record("rearm_scheduled", "delay_ms=$delayMs")
         mainHandler.postDelayed({
-            if (!isFinishing && !isDestroyed && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            if (generation == voiceRequestGeneration && !isFinishing && !isDestroyed && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
                 pulseVoiceTrace.record("rearm_started")
                 if (pulseWakeTrial?.resumeDetection() != true) startVoiceTrialIfPermitted()
             }

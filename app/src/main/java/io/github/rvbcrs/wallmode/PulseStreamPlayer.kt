@@ -24,15 +24,21 @@ internal class PulseStreamPlayer(private val silentProof: Boolean = false, priva
         return "rate=$diagnosticSampleRate played_frames=$frames written_frames=${diagnosticBytesWritten / 2}"
     }
 
-    fun play(url: String, started: () -> Unit, completed: (Int) -> Unit, failed: (Throwable) -> Unit, beforeStart: () -> Unit = {}) {
+    fun play(url: String, started: () -> Unit, completed: (Int) -> Unit, failed: (Throwable) -> Unit, beforeStart: () -> Unit = {}, fixedDebugWav: ByteArray? = null) {
         Thread({
             try {
-                val http = URL(url).openConnection() as HttpURLConnection
-                connection = http
-                http.connectTimeout = if (optionalCue) 800 else 15_000
-                http.readTimeout = if (optionalCue) 800 else 150_000
+                val source = if (fixedDebugWav != null) {
+                    java.io.ByteArrayInputStream(fixedDebugWav)
+                } else {
+                    val http = URL(url).openConnection() as HttpURLConnection
+                    connection = http
+                    http.connectTimeout = if (optionalCue) 800 else 15_000
+                    http.readTimeout = if (optionalCue) 800 else 150_000
+                    checkActive()
+                    http.inputStream
+                }
                 checkActive()
-                DataInputStream(http.inputStream).use { input ->
+                DataInputStream(source).use { input ->
                     val header = ByteArray(12).also(input::readFully)
                     require(String(header, 0, 4, Charsets.US_ASCII) == "RIFF" &&
                         String(header, 8, 4, Charsets.US_ASCII) == "WAVE") { "Unsupported speech audio" }
