@@ -21,9 +21,9 @@ internal sealed interface PulseWakeTrialEvent {
     data class Ready(val detail: String) : PulseWakeTrialEvent
     data class Detected(val probability: Float, val wakeWord: String) : PulseWakeTrialEvent
     data object SpeechStarted : PulseWakeTrialEvent
-    data class AudioCaptured(val samples: ShortArray) : PulseWakeTrialEvent
+    data class AudioCaptured(val samples: ShortArray, val endReason: PulseCaptureEndReason, val postWakeSamples: Int, val silenceSamples: Int) : PulseWakeTrialEvent
     data object NoSpeech : PulseWakeTrialEvent
-    data object StopDetected : PulseWakeTrialEvent
+    data class StopDetected(val epoch: Long) : PulseWakeTrialEvent
     data class Failed(val detail: String) : PulseWakeTrialEvent
 }
 
@@ -47,10 +47,8 @@ internal class PulseWakeWordTrial(
         private const val COOLDOWN_INFERENCES = 34 // roughly two seconds
         private const val RESUME_COOLDOWN_INFERENCES = 8
         private const val PRE_WAKE_SAMPLES = (SAMPLE_RATE * 1.5f).toInt()
-        private const val MAX_POST_WAKE_SAMPLES = (SAMPLE_RATE * 7f).toInt()
+        private const val MAX_POST_WAKE_SAMPLES = PulseCaptureEndpoint.MAX_POST_WAKE_SAMPLES
         private const val MAX_CAPTURE_SAMPLES = PRE_WAKE_SAMPLES + MAX_POST_WAKE_SAMPLES
-        private const val SPEECH_START_TIMEOUT_SAMPLES = (SAMPLE_RATE * 1.5f).toInt()
-        private const val SILENCE_END_SAMPLES = (SAMPLE_RATE * 2f).toInt()
         private const val SPEECH_LEVEL = 520
     }
 
@@ -67,6 +65,7 @@ internal class PulseWakeWordTrial(
     private val detectors = mutableListOf<Detector>()
     private var stopDetector: PulseStopDetector? = null
     @Volatile private var speechInterruptionEnabled = false
+    private val acousticStopGate = PulseAcousticStopGate()
     private val preWakeSamples = ArrayDeque<Short>(PRE_WAKE_SAMPLES)
     private val running = AtomicBoolean(false)
     private var audioRecord: AudioRecord? = null
@@ -197,23 +196,31 @@ internal class PulseWakeWordTrial(
 
     @Synchronized
     fun setSpeechInterruptionEnabled(enabled: Boolean) {
-        if (speechInterruptionEnabled == enabled) return
+        acousticStopGate.invalidate()
         stopDetector?.reset()
         speechInterruptionEnabled = enabled
     }
 
     @Synchronized
+    fun setAssistantPlaybackActive(token: Any, active: Boolean) {
+        acousticStopGate.playback(token, active)
+        stopDetector?.reset()
+    }
+
+    fun acceptsAcousticStop(epoch: Long): Boolean = acousticStopGate.accepts(epoch)
+
+    @Synchronized
     fun stopDiagnostic(): String =
-        "capture_source=$captureSource stop_armed=$speechInterruptionEnabled scores=${stopDetector?.lastTriggerScores?.joinToString(",")} " +
+        "capture_source=$captureSource stop_armed=${speechInterruptionEnabled && acousticStopGate.allowed()} playback_suppressed=${!acousticStopGate.allowed()} scores=${stopDetector?.lastTriggerScores?.joinToString(",")} " +
         "aec_available=${AcousticEchoCanceler.isAvailable()} " +
         "aec_created=${echoCanceler != null} aec_enabled=${echoCanceler?.enabled} " +
         "ns_created=${noiseSuppressor != null} ns_enabled=${noiseSuppressor?.enabled}"
 
     @Synchronized
     private fun processStopChunk(chunk: ShortArray) {
-        if (speechInterruptionEnabled && stopDetector?.accepts(chunk) == true) {
+        if (speechInterruptionEnabled && acousticStopGate.allowed() && stopDetector?.accepts(chunk) == true) {
             speechInterruptionEnabled = false
-            onEvent(PulseWakeTrialEvent.StopDetected)
+            onEvent(PulseWakeTrialEvent.StopDetected(acousticStopGate.detectionEpoch()))
         }
     }
 
@@ -270,6 +277,7 @@ internal class PulseWakeWordTrial(
 
     @Synchronized
     private fun beginCommandCapture(includePreWake: Boolean = true) {
+        acousticStopGate.invalidate()
         capturingCommand = true
         detectionSuspended = true
         commandSamples.clear()
@@ -301,22 +309,20 @@ internal class PulseWakeWordTrial(
         } else if (commandSpeechStarted) {
             commandSilenceSamples += chunk.size
         }
-        val timedOutWaiting = !commandSpeechStarted && commandPostWakeSamples >= SPEECH_START_TIMEOUT_SAMPLES
-        val utteranceEnded = commandSpeechStarted && commandSilenceSamples >= SILENCE_END_SAMPLES
-        val captureFull = commandPostWakeSamples >= MAX_POST_WAKE_SAMPLES
-        if (timedOutWaiting || utteranceEnded || captureFull) finishCommandCapture(timedOutWaiting)
+        PulseCaptureEndpoint.endReason(commandPostWakeSamples, commandSpeechStarted, commandSilenceSamples)
+            ?.let(::finishCommandCapture)
     }
 
-    private fun finishCommandCapture(noSpeech: Boolean) {
+    private fun finishCommandCapture(reason: PulseCaptureEndReason) {
         capturingCommand = false
         detectionSuspended = true
-        if (noSpeech) {
+        if (reason == PulseCaptureEndReason.NO_SPEECH) {
             commandSamples.clear()
             onEvent(PulseWakeTrialEvent.NoSpeech)
         } else {
             val captured = ShortArray(commandSamples.size) { commandSamples[it] }
             commandSamples.clear()
-            onEvent(PulseWakeTrialEvent.AudioCaptured(captured))
+            onEvent(PulseWakeTrialEvent.AudioCaptured(captured, reason, commandPostWakeSamples, commandSilenceSamples))
         }
         commandSpeechStarted = false
         commandSpeechChunks = 0
@@ -330,6 +336,7 @@ internal class PulseWakeWordTrial(
     @Synchronized
     fun resumeDetection(): Boolean {
         if (!running.get()) return false
+        acousticStopGate.invalidate()
         val remainingCooldown = cooldownUntilMillis
         // Command capture/playback suspends frontend input. Start fresh session
         // state instead of replaying a stale wake activation on return to idle.

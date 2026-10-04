@@ -24,7 +24,7 @@ internal class PulseStreamPlayer(private val silentProof: Boolean = false, priva
         return "rate=$diagnosticSampleRate played_frames=$frames written_frames=${diagnosticBytesWritten / 2}"
     }
 
-    fun play(url: String, started: () -> Unit, completed: (Int) -> Unit, failed: (Throwable) -> Unit, beforeStart: () -> Unit = {}, fixedDebugWav: ByteArray? = null, communicationDiagnostic: Boolean = false) {
+    fun play(url: String, started: () -> Unit, completed: (Int) -> Unit, failed: (Throwable) -> Unit, beforeStart: () -> Unit = {}, fixedDebugWav: ByteArray? = null, communicationDiagnostic: Boolean = false, playbackActive: (Boolean) -> Unit = {}) {
         Thread({
             try {
                 val source = if (fixedDebugWav != null) {
@@ -97,7 +97,7 @@ internal class PulseStreamPlayer(private val silentProof: Boolean = false, priva
                             bytesWritten += written
                             diagnosticBytesWritten = bytesWritten
                         }
-                        if (!playing) { beforeStart(); playbackGate.start { player.play() }; playing = true; started() }
+                        if (!playing) { beforeStart(); playbackGate.start { playbackActive(true); player.play() }; playing = true; started() }
                         supplyUnderruns = player.underrunCount
                         remaining -= count
                     }
@@ -124,6 +124,7 @@ internal class PulseStreamPlayer(private val silentProof: Boolean = false, priva
                 track = null
                 runCatching { player?.stop() }
                 runCatching { player?.release() }
+                playbackActive(false)
             }
         }, "PulseSpeechStream").start()
     }

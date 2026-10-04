@@ -657,7 +657,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                     showVoiceState(getString(R.string.voice_listening))
                 }
                 PulseWakeTrialEvent.SpeechStarted -> pulseVoiceTrace.record("speech_started")
-                PulseWakeTrialEvent.StopDetected -> {
+                is PulseWakeTrialEvent.StopDetected -> {
+                    // A detection queued before playback must not interrupt the assistant.
+                    if (pulseWakeTrial?.acceptsAcousticStop(event.epoch) != true) return@runOnUiThread
                     pulseVoiceTrace.record("local_stop_detected",
                         "${pulseWakeTrial?.stopDiagnostic()} " +
                             "${voiceMediaPlayer?.playbackDiagnostic()} cue=$voiceCurrentWaitCue")
@@ -666,7 +668,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                 is PulseWakeTrialEvent.AudioCaptured -> {
                     pulseVoiceTrace.record(
                         "audio_captured",
-                        "samples=${event.samples.size} duration_ms=${event.samples.size * 1000L / 16_000L}"
+                        "samples=${event.samples.size} duration_ms=${event.samples.size * 1000L / 16_000L} " +
+                            "end_reason=${event.endReason} post_wake_samples=${event.postWakeSamples} silence_samples=${event.silenceSamples}"
                     )
                     processPulseVoiceAudio(event.samples)
                 }
@@ -879,7 +882,10 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         }
         voiceCurrentWaitCue = true
         voiceMediaPlayer = player
-        player.play(audio.url, communicationDiagnostic = voiceCommunicationLease != null, started = {
+        player.play(audio.url, communicationDiagnostic = voiceCommunicationLease != null, playbackActive = { active ->
+            pulseWakeTrial?.setAssistantPlaybackActive(player, active)
+            pulseVoiceTrace.record("assistant_playback_state", "active=$active ${pulseWakeTrial?.stopDiagnostic()}")
+        }, started = {
             mainHandler.post {
                 if (generation != voiceRequestGeneration || voiceMediaPlayer !== player) return@post
                 pulseVoiceTrace.record(if (audio.progressCue) "progress_cue_started" else "wait_cue_started")
@@ -916,7 +922,10 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         handover.textAvailable()
         pulseVoiceTrace.record("answer_text_ready")
         // Start the actual TTS fetch now. An opening may continue independently.
-        player.play(audio.url, fixedDebugWav = audio.fixedDebugWav, communicationDiagnostic = voiceCommunicationLease != null, beforeStart = {
+        player.play(audio.url, fixedDebugWav = audio.fixedDebugWav, communicationDiagnostic = voiceCommunicationLease != null, playbackActive = { active ->
+            pulseWakeTrial?.setAssistantPlaybackActive(player, active)
+            pulseVoiceTrace.record("assistant_playback_state", "active=$active ${pulseWakeTrial?.stopDiagnostic()}")
+        }, beforeStart = {
             // Invoked after the first complete PCM write, before AudioTrack.play.
             // Cancel/flush any optional cue directly; never await its duration.
             handover.audioReady()
