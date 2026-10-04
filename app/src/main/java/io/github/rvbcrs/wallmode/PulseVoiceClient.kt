@@ -55,6 +55,20 @@ internal class PulseVoiceClient(
     fun openPromptedFollowup() { promptedFollowupUntilMillis = System.currentTimeMillis() + 18_000L }
     private val requestCancellation = ThreadLocal<PulseVoiceCancellation>()
 
+    internal fun openBareChatIfRequested(
+        transcript: String,
+        nowMillis: Long,
+        onSpeechChunk: (PulseSpeechAudio) -> Unit
+    ): PulseVoiceResult? {
+        // STT commonly appends punctuation. Recognize only the established bare
+        // Chat command, keeping its displayed transcript and payload routes intact.
+        if (!BARE_CHAT_COMMAND.matches(transcript.trim())) return null
+        chatSessionUntilMillis = nowMillis + CHAT_SESSION_MILLIS
+        val response = "Chat is open. What would you like to talk about?"
+        onSpeechChunk(speechSource(response))
+        return PulseVoiceResult(transcript, response, true, wakeVerified = true, continueListening = true)
+    }
+
     fun process(samples: ShortArray, cancellation: PulseVoiceCancellation = PulseVoiceCancellation(), onTranscript: (String) -> Unit = {}, onSpeechChunk: (PulseSpeechAudio) -> Unit): PulseVoiceResult {
         requestCancellation.set(cancellation)
         try {
@@ -90,12 +104,7 @@ internal class PulseVoiceClient(
         // endpoints; do not maintain a second tablet-only routing policy here.
         val now = System.currentTimeMillis()
         val command = transcript.trim().lowercase()
-        if (command == "chat") {
-            chatSessionUntilMillis = now + CHAT_SESSION_MILLIS
-            val response = "Chat is open. What would you like to talk about?"
-            onSpeechChunk(speechSource(response))
-            return PulseVoiceResult(transcript, response, true, wakeVerified = true, continueListening = true)
-        }
+        openBareChatIfRequested(transcript, now, onSpeechChunk)?.let { return it }
         if (now < chatSessionUntilMillis && command in CHAT_CLOSE_COMMANDS) {
             chatSessionUntilMillis = 0L
             val response = "Chat closed."
@@ -315,6 +324,7 @@ internal fun pulseCompleteSpeechChunks(text: String): List<String> {
 }
 
 internal const val CHAT_SESSION_MILLIS = 10 * 60 * 1000L
+private val BARE_CHAT_COMMAND = Regex("^chat[.?!]*$", RegexOption.IGNORE_CASE)
 private val CHAT_CLOSE_COMMANDS = setOf("stop", "end chat", "close chat", "exit chat", "stop chat", "goodbye")
 
 private val QUESTION_STREAM_DOMAIN = Regex(
