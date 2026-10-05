@@ -117,7 +117,7 @@ internal class PulseVoiceClient(
         val chatFollowup = now < chatSessionUntilMillis && !PulseCommandGate.accepts(transcript)
         val promptedFollowup = now < promptedFollowupUntilMillis && !PulseCommandGate.accepts(transcript)
         promptedFollowupUntilMillis = 0L
-        val routedTranscript = if (chatFollowup) "chat $transcript" else if (promptedFollowup) "question $transcript" else transcript
+        val routedTranscript = pulseRoutedTranscript(transcript, now < chatSessionUntilMillis, promptedFollowup)
         if (chatFollowup) chatSessionUntilMillis = now + CHAT_SESSION_MILLIS
         val payload = JSONObject().put("endpoint_id", endpointId).put("transcript", routedTranscript)
             .put("room", room).put("endpoint_room", room)
@@ -331,7 +331,7 @@ private val BARE_CHAT_COMMAND = Regex("^chat[.?!]*$", RegexOption.IGNORE_CASE)
 private val CHAT_CLOSE_COMMANDS = setOf("stop", "end chat", "close chat", "exit chat", "stop chat", "goodbye")
 
 private val QUESTION_STREAM_DOMAIN = Regex(
-    "^\\s*(?:question|chat|news|lookup|look\\s+up|search|research|verify|reason|think|status)\\b",
+    "^\\s*(?:diagnose|question|chat|news|lookup|look\\s+up|search|research|verify|reason|think|status)\\b",
     RegexOption.IGNORE_CASE
 )
 
@@ -364,3 +364,9 @@ internal val MORRIS_PREPARATION_CUES = setOf(
     "Ah… hello… hang on… I’ll have to check that first.",
     "Ah… right… give me a moment to think that through."
 )
+
+internal fun pulseRoutedTranscript(transcript: String, chatOpen: Boolean, promptedFollowup: Boolean): String =
+    if (PulseCommandGate.accepts(transcript)) transcript
+    else if (chatOpen) "chat $transcript"
+    else if (promptedFollowup) "question $transcript"
+    else transcript

@@ -16,6 +16,8 @@ class PulseCommandGateTest {
     fun `explicit command domains are routed`() {
         listOf(
             "news",
+            "Diagnose Office Fan. Why is it unavailable?",
+            "Diagnose. Office Fan",
             "question tell me about Winston Churchill",
             "chat",
             "play David Bowie",
@@ -31,7 +33,9 @@ class PulseCommandGateTest {
             "Thank you very much",
             "you",
             "we should talk about this later",
-            "playful conversation"
+            "playful conversation",
+            "we should diagnose the fan",
+            "diagnoses are difficult"
         ).forEach { assertFalse(it, PulseCommandGate.accepts(it)) }
     }
 
@@ -40,7 +44,7 @@ class PulseCommandGateTest {
         listOf("time", "date", "status").forEach {
             assertTrue(it, PulseCommandGate.acceptsFuzzyWake(it))
         }
-        listOf("blackout", "play David Bowie", "turn off hall main", "question who was Churchill").forEach {
+        listOf("Diagnose Office Fan", "blackout", "play David Bowie", "turn off hall main", "question who was Churchill").forEach {
             assertFalse(it, PulseCommandGate.acceptsFuzzyWake(it))
         }
     }

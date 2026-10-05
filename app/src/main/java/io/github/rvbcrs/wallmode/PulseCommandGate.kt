@@ -49,7 +49,8 @@ internal object PulseCommandGate {
     }
 
     private fun matchesExplicitCommand(value: String): Boolean =
-        explicitDomain.containsMatchIn(value) ||
+        Regex("^diagnose\\b", RegexOption.IGNORE_CASE).containsMatchIn(value) ||
+            explicitDomain.containsMatchIn(value) ||
             switchedAction.containsMatchIn(value) ||
             regionalNews.containsMatchIn(value)
 }
