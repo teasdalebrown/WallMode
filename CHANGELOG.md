@@ -121,3 +121,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## Version-history note
 
 No WallMode release or WallMode tag exists yet. The existing `v1.0.0` through `v1.4.0` tags belong to the inherited KioskZen history and are intentionally not presented as WallMode releases.
+
+## Prepared Stop playback correction — 2026-10-08
+
+The previous acoustic gate disabled local Stop for every active speech player. Known TTS speech now carries its exact text into the playback gate. Stop stays armed during ordinary known speech; unknown audio and clips containing Stop-like words remain suppressed to protect against the assistant saying its own trigger. Playback/turn epochs still reject queued detections from earlier states. Existing AEC, capture profile and Annabel/Morris handling are unchanged.
+
+This is a prepared correction, not an installed or acoustically accepted build. Text-based exclusion cannot guarantee zero acoustic false detections. Before installation acceptance: interrupt the diagnosis during audible playback, verify immediate player/request/queue cancellation, then test assistant Stop-word output for self-cancellation and ordinary Annabel/Morris wakes. Known Stop-containing or unknown clips deliberately retain suppression.

@@ -29,6 +29,7 @@ class PulseChatEntryTest {
                 assertFalse(result.response.contains("Pulse"))
                 assertEquals(601000L, expiry(client))
                 assertEquals(1, chunks.size)
+                assertEquals(result.response, chunks.single().spokenText)
                 assertFalse(chunks.single().waitCue)
                 assertFalse(chunks.single().progressCue)
                 assertTrue(chunks.single().url.contains("endpoint_id=fixture"))

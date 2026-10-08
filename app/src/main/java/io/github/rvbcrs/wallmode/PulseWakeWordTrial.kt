@@ -202,8 +202,8 @@ internal class PulseWakeWordTrial(
     }
 
     @Synchronized
-    fun setAssistantPlaybackActive(token: Any, active: Boolean) {
-        acousticStopGate.playback(token, active)
+    fun setAssistantPlaybackActive(token: Any, active: Boolean, spokenText: String? = null) {
+        acousticStopGate.playback(token, active, spokenText)
         stopDetector?.reset()
     }
 

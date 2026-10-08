@@ -658,7 +658,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                 }
                 PulseWakeTrialEvent.SpeechStarted -> pulseVoiceTrace.record("speech_started")
                 is PulseWakeTrialEvent.StopDetected -> {
-                    // A detection queued before playback must not interrupt the assistant.
+                    // Playback/turn transitions invalidate earlier queued detections.
                     if (pulseWakeTrial?.acceptsAcousticStop(event.epoch) != true) return@runOnUiThread
                     pulseVoiceTrace.record("local_stop_detected",
                         "${pulseWakeTrial?.stopDiagnostic()} " +
@@ -883,7 +883,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         voiceCurrentWaitCue = true
         voiceMediaPlayer = player
         player.play(audio.url, communicationDiagnostic = voiceCommunicationLease != null, playbackActive = { active ->
-            pulseWakeTrial?.setAssistantPlaybackActive(player, active)
+            pulseWakeTrial?.setAssistantPlaybackActive(player, active, audio.spokenText)
             pulseVoiceTrace.record("assistant_playback_state", "active=$active ${pulseWakeTrial?.stopDiagnostic()}")
         }, started = {
             mainHandler.post {
@@ -923,7 +923,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         pulseVoiceTrace.record("answer_text_ready")
         // Start the actual TTS fetch now. An opening may continue independently.
         player.play(audio.url, fixedDebugWav = audio.fixedDebugWav, communicationDiagnostic = voiceCommunicationLease != null, playbackActive = { active ->
-            pulseWakeTrial?.setAssistantPlaybackActive(player, active)
+            pulseWakeTrial?.setAssistantPlaybackActive(player, active, audio.spokenText)
             pulseVoiceTrace.record("assistant_playback_state", "active=$active ${pulseWakeTrial?.stopDiagnostic()}")
         }, beforeStart = {
             // Invoked after the first complete PCM write, before AudioTrack.play.

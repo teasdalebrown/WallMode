@@ -36,7 +36,7 @@ internal data class PulseVoiceResult(
     val continueListening: Boolean = false
 )
 
-internal data class PulseSpeechAudio(val url: String, val waitCue: Boolean = false, val progressCue: Boolean = false, val preparationCue: Boolean = false, val fixedDebugWav: ByteArray? = null, val communicationDiagnostic: Boolean = false)
+internal data class PulseSpeechAudio(val url: String, val waitCue: Boolean = false, val progressCue: Boolean = false, val preparationCue: Boolean = false, val fixedDebugWav: ByteArray? = null, val communicationDiagnostic: Boolean = false, val spokenText: String? = null)
 
 internal class PulseVoiceClient(
     private val endpointId: String = "honor_endpoint",
@@ -86,12 +86,13 @@ internal class PulseVoiceClient(
 
     private fun speechSource(text: String, waitCue: Boolean = false) =
         PulseSpeechAudio(pulseSpeechUrl(bridgeUrl, text, endpointId, waitCue), waitCue,
-            preparationCue = waitCue && detectedWakeWord == "morris" && text in MORRIS_PREPARATION_CUES)
+            preparationCue = waitCue && detectedWakeWord == "morris" && text in MORRIS_PREPARATION_CUES,
+            spokenText = text)
 
     /** Only the endpoint's text-ready/TTS-pending handover may offer this cue. */
     fun progressCue(): PulseSpeechAudio? = if (detectedWakeWord == "morris")
         PulseSpeechAudio(pulseSpeechUrl(bridgeUrl, MORRIS_PROGRESS_CUE, endpointId, true),
-            waitCue = true, progressCue = true) else null
+            waitCue = true, progressCue = true, spokenText = MORRIS_PROGRESS_CUE) else null
 
     private fun processRequest(samples: ShortArray, onTranscript: (String) -> Unit, onSpeechChunk: (PulseSpeechAudio) -> Unit): PulseVoiceResult {
         val stt = postBytes(pulseAudioPath(endpointId, detectedWakeWord), wavBytes(samples), "audio/wav")
